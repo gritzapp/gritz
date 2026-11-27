@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { getAgent, listAgents } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
 import { type Agent, type AgentLink, AgentSchema, type EventTypeDef } from '@/gen/gritz/v1/gritz_pb'
 import { autoArchiveSelectValue, durationFromAutoArchiveSelect } from '@/lib/duration'
+import { browserTimezone, DEFAULT_CRON } from '@/lib/schedule'
 
 // The condition operators the backend understands. Comparisons are exact and
 // case-sensitive; "glob" matches a path-style pattern against the whole value —
@@ -52,6 +53,17 @@ export interface LinkKindDraft {
   public: boolean
 }
 
+// ScheduleDraft is a schedule as the agent editor edits it. id is the saved
+// schedule's decimal ID, or '' for one the save adds; it is a string so the
+// draft stays JSON-comparable.
+export interface ScheduleDraft {
+  id: string
+  name: string
+  cronExpr: string
+  timezone: string
+  enabled: boolean
+}
+
 // AgentFormValues is the agent editor's draft. autoArchive is the auto-archive
 // Select value (see autoArchiveSelectValue).
 export interface AgentFormValues {
@@ -62,6 +74,7 @@ export interface AgentFormValues {
   autoArchive: string
   variables: Record<string, string>
   triggers: TriggerDraft[]
+  schedules: ScheduleDraft[]
   links: LinkKindDraft[]
 }
 
@@ -74,6 +87,7 @@ export function emptyAgentValues(): AgentFormValues {
     autoArchive: autoArchiveSelectValue(undefined),
     variables: {},
     triggers: [],
+    schedules: [],
     links: [],
   }
 }
@@ -85,6 +99,12 @@ export const emptyTrigger: TriggerDraft = {
   public: false,
   yieldTo: '',
   link: '',
+}
+
+// emptySchedule is a new schedule: a daily cron in the viewer's timezone,
+// enabled, since a schedule is added to run.
+export function emptySchedule(): ScheduleDraft {
+  return { id: '', name: '', cronExpr: DEFAULT_CRON, timezone: browserTimezone(), enabled: true }
 }
 
 export const emptyLinkKind: LinkKindDraft = {
@@ -110,6 +130,13 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       public: t.public,
       yieldTo: t.yieldTo.join(', '),
       link: t.link,
+    })),
+    schedules: agent.schedules.map((s) => ({
+      id: String(s.id),
+      name: s.name,
+      cronExpr: s.cronExpr,
+      timezone: s.timezone,
+      enabled: s.enabled,
     })),
     links: agent.links.map((l) => ({
       type: l.type,
@@ -142,6 +169,13 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       public: t.public,
       yieldTo: splitClaims(t.yieldTo),
       link: t.link,
+    })),
+    schedules: values.schedules.map((s) => ({
+      id: s.id ? BigInt(s.id) : 0n,
+      name: s.name.trim(),
+      cronExpr: s.cronExpr.trim(),
+      timezone: s.timezone,
+      enabled: s.enabled,
     })),
     links: values.links.map((l) => ({
       type: l.type,
@@ -197,6 +231,9 @@ export function agentFormError(values: AgentFormValues): string | null {
     values.links.some((l) => l.events.some((e) => e.conditions.some((c) => !c.attr)))
   ) {
     return 'Every condition needs an attribute.'
+  }
+  if (values.schedules.some((s) => !s.cronExpr.trim())) {
+    return 'Every schedule needs a cron expression.'
   }
   if (values.links.some((l) => !l.type)) return 'Every link kind needs a link type.'
   const kinds = values.links.map(linkKindName)

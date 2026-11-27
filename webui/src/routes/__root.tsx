@@ -6,17 +6,7 @@ import {
   useNavigate,
   useMatches,
 } from '@tanstack/react-router'
-import {
-  Bot,
-  Boxes,
-  CalendarClock,
-  KeyRound,
-  ListTodo,
-  LogOut,
-  Settings,
-  Users,
-  Zap,
-} from 'lucide-react'
+import { Bot, Boxes, KeyRound, ListTodo, LogOut, Settings, Users, Zap } from 'lucide-react'
 import { lazy, Suspense } from 'react'
 import { QueryClient } from '@tanstack/react-query'
 import { useQuery } from '@connectrpc/connect-query'
@@ -62,7 +52,6 @@ const ReactQueryDevtools = import.meta.env.DEV
 const NAV_ITEMS = [
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/agents', label: 'Agents', icon: Bot },
-  { to: '/schedules', label: 'Schedules', icon: CalendarClock },
   { to: '/events', label: 'Events', icon: Zap },
   { to: '/workspaces', label: 'Workspaces', icon: Boxes },
   { to: '/members', label: 'Members', icon: Users },

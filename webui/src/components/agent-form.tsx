@@ -6,7 +6,7 @@ import {
   listAgents,
   listWorkspaces,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import type { AttrDef, EventTypeDef, LinkTypeDef } from '@/gen/gritz/v1/gritz_pb'
+import type { AgentSchedule, AttrDef, EventTypeDef, LinkTypeDef } from '@/gen/gritz/v1/gritz_pb'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,12 +24,14 @@ import { Badge } from '@/components/ui/badge'
 import { FieldLabel, SaveBar, SectionHeading } from '@/components/form-layout'
 import { externalSourceStyle } from '@/components/external-source'
 import { DeleteAgentAction } from '@/components/delete-agent-action'
+import { RelativeTime } from '@/components/relative-time'
 import { useOrgId } from '@/hooks/use-org-id'
 import { cn } from '@/lib/utils'
 import {
   ArrowDown,
   ArrowUp,
   Bot,
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
   FlaskConical,
@@ -45,6 +47,7 @@ import {
   agentFormError,
   CONDITION_OPS,
   emptyLinkKind,
+  emptySchedule,
   emptyTrigger,
   linkEventTypes,
   linkKindName,
@@ -55,16 +58,19 @@ import {
   type ConditionDraft,
   type ConditionOp,
   type LinkKindDraft,
+  type ScheduleDraft,
   type TriggerDraft,
 } from '@/lib/agents'
 import { AUTO_ARCHIVE_PRESETS } from '@/lib/duration'
 import { eventTypeId, findEventType } from '@/lib/event-types'
 import { variablesToSet } from '@/lib/variables'
+import { nextRunLabel, timezoneOptions } from '@/lib/schedule'
+import { timestampDate } from '@bufbuild/protobuf/wkt'
 
 // Radix Select can't hold an empty value, so "no link" gets a sentinel.
 const NO_LINK = '__none__'
 
-// Keys for the trigger and link kind cards, so a card's open state follows it
+// Keys for the trigger, schedule and link kind cards, so a card's open state follows it
 // when the list is reordered or an entry is removed.
 let keySeq = 0
 const newKey = () => keySeq++
@@ -79,6 +85,9 @@ function moveItem<T>(items: T[], index: number, by: number): T[] {
 interface AgentFormProps {
   // The saved agent being edited; unset while creating one.
   agentId?: bigint
+  // The saved agent's schedules as last loaded, for their run state: they
+  // follow fires without reseeding the form.
+  savedSchedules?: AgentSchedule[]
   initialValues: AgentFormValues
   submitLabel: string
   isSubmitting?: boolean
@@ -87,10 +96,12 @@ interface AgentFormProps {
 }
 
 // AgentForm is the agent page: a header with the agent's name and actions,
-// and a column that edits its task template, its triggers and its link kinds. The trigger and link kind editors are driven by
+// and a column that edits its task template, its triggers, its schedules and
+// its link kinds. The trigger and link kind editors are driven by
 // GetEventTypes.
 export function AgentForm({
   agentId,
+  savedSchedules,
   initialValues,
   submitLabel,
   isSubmitting,
@@ -100,7 +111,9 @@ export function AgentForm({
   const orgId = useOrgId()
   const [values, setValues] = useState<AgentFormValues>(initialValues)
   const [triggerKeys, setTriggerKeys] = useState(() => initialValues.triggers.map(newKey))
+  const [scheduleKeys, setScheduleKeys] = useState(() => initialValues.schedules.map(newKey))
   const [linkKeys, setLinkKeys] = useState(() => initialValues.links.map(newKey))
+  const timezones = useMemo(() => timezoneOptions(), [])
 
   const { data: eventTypesData } = useQuery(getEventTypes, {})
   const eventTypes = useMemo(() => eventTypesData?.eventTypes ?? [], [eventTypesData])
@@ -138,6 +151,7 @@ export function AgentForm({
   const discard = () => {
     setValues(initialValues)
     setTriggerKeys(initialValues.triggers.map(newKey))
+    setScheduleKeys(initialValues.schedules.map(newKey))
     setLinkKeys(initialValues.links.map(newKey))
   }
 
@@ -157,6 +171,24 @@ export function AgentForm({
   const removeTrigger = (index: number) => {
     setValues((prev) => ({ ...prev, triggers: prev.triggers.filter((_, i) => i !== index) }))
     setTriggerKeys((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const setSchedule = (index: number, schedule: ScheduleDraft) =>
+    setValues((prev) => ({
+      ...prev,
+      schedules: prev.schedules.map((s, i) => (i === index ? schedule : s)),
+    }))
+  const addSchedule = () => {
+    setValues((prev) => ({ ...prev, schedules: [...prev.schedules, emptySchedule()] }))
+    setScheduleKeys((prev) => [...prev, newKey()])
+  }
+  const moveSchedule = (index: number, by: number) => {
+    setValues((prev) => ({ ...prev, schedules: moveItem(prev.schedules, index, by) }))
+    setScheduleKeys((prev) => moveItem(prev, index, by))
+  }
+  const removeSchedule = (index: number) => {
+    setValues((prev) => ({ ...prev, schedules: prev.schedules.filter((_, i) => i !== index) }))
+    setScheduleKeys((prev) => prev.filter((_, i) => i !== index))
   }
 
   const setLink = (index: number, link: LinkKindDraft) =>
@@ -306,7 +338,7 @@ export function AgentForm({
               <div className="space-y-2">
                 <FieldLabel
                   htmlFor="agent-prompt"
-                  hint="The first instruction of the tasks its triggers create. Tasks created by hand or by a schedule get their own instructions instead."
+                  hint="The first instruction of every task its triggers and schedules create. Tasks created by hand start with their own instructions."
                 >
                   Prompt
                 </FieldLabel>
@@ -361,7 +393,7 @@ export function AgentForm({
               />
               {values.triggers.length === 0 ? (
                 <EmptyState icon={Zap}>
-                  No triggers. Tasks of this agent are only created by hand or by a schedule.
+                  No triggers. Tasks of this agent are only created by hand or by its schedules.
                 </EmptyState>
               ) : (
                 <ol className="relative ml-3 space-y-3 border-l pl-7">
@@ -384,6 +416,41 @@ export function AgentForm({
                     </li>
                   ))}
                 </ol>
+              )}
+            </section>
+
+            <section id="agent-schedules" className="scroll-mt-8 space-y-5">
+              <SectionHeading
+                title="Schedules"
+                description="Each creates a task of this agent, starting with its prompt, whenever its cron expression matches."
+                hint="Renaming or reordering a schedule keeps its next run. Changing its cron expression, timezone or enabled switch counts the next run from the save."
+                action={
+                  <Button type="button" variant="outline" size="sm" onClick={addSchedule}>
+                    <Plus className="h-4 w-4" />
+                    Add schedule
+                  </Button>
+                }
+              />
+              {values.schedules.length === 0 ? (
+                <EmptyState icon={CalendarClock}>
+                  No schedules. Tasks of this agent are only created by hand or by its triggers.
+                </EmptyState>
+              ) : (
+                <div className="space-y-3">
+                  {values.schedules.map((schedule, index) => (
+                    <ScheduleEditor
+                      key={scheduleKeys[index]}
+                      index={index}
+                      count={values.schedules.length}
+                      schedule={schedule}
+                      saved={savedSchedules?.find((s) => String(s.id) === schedule.id)}
+                      timezones={timezones}
+                      onChange={(s) => setSchedule(index, s)}
+                      onMove={(by) => moveSchedule(index, by)}
+                      onRemove={() => removeSchedule(index)}
+                    />
+                  ))}
+                </div>
               )}
             </section>
 
@@ -445,20 +512,23 @@ function EmptyState({ icon: Icon, children }: { icon: LucideIcon; children: Reac
   )
 }
 
-// RuleCard is the collapsible shell the trigger and link kind editors share:
-// a summary row that toggles the editor below it, with the row's actions on
-// the right.
+// RuleCard is the collapsible shell the trigger, schedule and link kind
+// editors share: a summary row that toggles the editor below it, with the
+// row's actions on the right. footer stays shown under the summary, outside
+// its toggle button, so it can hold links.
 function RuleCard({
   open,
   onToggle,
   summary,
   actions,
+  footer,
   children,
 }: {
   open: boolean
   onToggle: () => void
   summary: React.ReactNode
   actions: React.ReactNode
+  footer?: React.ReactNode
   children: React.ReactNode
 }) {
   return (
@@ -478,8 +548,9 @@ function RuleCard({
           />
           <div className="min-w-0 flex-1 space-y-2">{summary}</div>
         </button>
-        <div className="flex shrink-0 gap-0.5 text-muted-foreground">{actions}</div>
+        <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground">{actions}</div>
       </div>
+      {footer && <div className="-mt-1 pb-3 pl-10 pr-4">{footer}</div>}
       {open && <div className="space-y-5 border-t p-4">{children}</div>}
     </div>
   )
@@ -829,6 +900,186 @@ function TriggerEditor({
         description="Also match events from people who aren't members of the org. Custom event triggers must be public: custom events have no actor."
       />
     </RuleCard>
+  )
+}
+
+function ScheduleEditor({
+  index,
+  count,
+  schedule,
+  saved,
+  timezones,
+  onChange,
+  onMove,
+  onRemove,
+}: {
+  index: number
+  count: number
+  schedule: ScheduleDraft
+  // The schedule as last loaded, for its run state; unset for a new one.
+  saved: AgentSchedule | undefined
+  timezones: string[]
+  onChange: (schedule: ScheduleDraft) => void
+  onMove: (by: number) => void
+  onRemove: () => void
+}) {
+  // A schedule that was just added opens ready to be filled in.
+  const [open, setOpen] = useState(!schedule.id)
+  const id = `schedule-${index}`
+
+  return (
+    <RuleCard
+      open={open}
+      onToggle={() => setOpen(!open)}
+      summary={
+        <>
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <CalendarClock className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {schedule.name.trim() ? (
+              <span className="truncate">{schedule.name.trim()}</span>
+            ) : (
+              <span className="text-muted-foreground">
+                {schedule.id ? 'Unnamed schedule' : 'New schedule'}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+            <Badge variant="secondary" className="font-mono font-normal">
+              {schedule.cronExpr.trim() || '""'}
+            </Badge>
+            <span>{schedule.timezone || 'UTC'}</span>
+            {!schedule.enabled && <Badge variant="outline">Disabled</Badge>}
+          </div>
+        </>
+      }
+      actions={
+        <>
+          <Switch
+            className="mr-1.5"
+            checked={schedule.enabled}
+            onCheckedChange={(enabled) => onChange({ ...schedule, enabled })}
+            aria-label={schedule.enabled ? 'Disable schedule' : 'Enable schedule'}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={index === 0}
+            onClick={() => onMove(-1)}
+            aria-label="Move schedule up"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={index === count - 1}
+            onClick={() => onMove(1)}
+            aria-label="Move schedule down"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="hover:text-destructive"
+            onClick={onRemove}
+            aria-label="Remove schedule"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </>
+      }
+      footer={saved && <ScheduleRunState schedule={saved} />}
+    >
+      <div className="space-y-2">
+        <FieldLabel htmlFor={`${id}-name`} hint="The name of every task it creates.">
+          Name
+        </FieldLabel>
+        <Input
+          id={`${id}-name`}
+          className="max-w-sm"
+          placeholder="Nightly dependency bump"
+          value={schedule.name}
+          onChange={(e) => onChange({ ...schedule, name: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor={`${id}-cron`}>Cron expression</Label>
+          <Input
+            id={`${id}-cron`}
+            className="font-mono"
+            placeholder="0 9 * * *"
+            value={schedule.cronExpr}
+            onChange={(e) => onChange({ ...schedule, cronExpr: e.target.value })}
+          />
+          <p className="text-muted-foreground text-xs">
+            Standard 5-field cron (minute hour day-of-month month day-of-week) or a macro like
+            @daily, @hourly, @weekly.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor={`${id}-timezone`}>Timezone</Label>
+          <Select
+            value={schedule.timezone}
+            onValueChange={(timezone) => onChange({ ...schedule, timezone })}
+          >
+            <SelectTrigger id={`${id}-timezone`} className="w-full">
+              <SelectValue placeholder="Select a timezone" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {withCurrent(timezones, schedule.timezone).map((tz) => (
+                <SelectItem key={tz} value={tz}>
+                  {tz}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-muted-foreground text-xs">
+            Cron fields are interpreted in this IANA timezone, correct across DST.
+          </p>
+        </div>
+      </div>
+    </RuleCard>
+  )
+}
+
+// ScheduleRunState is a saved schedule's next run and last run, with a link
+// to the last task.
+function ScheduleRunState({ schedule }: { schedule: AgentSchedule }) {
+  const orgId = useOrgId()
+  return (
+    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+      <span>
+        Next run:{' '}
+        <span className="text-foreground">
+          {schedule.nextRunAt ? nextRunLabel(schedule.nextRunAt) : 'none while disabled'}
+        </span>
+      </span>
+      <span>
+        Last run:{' '}
+        {schedule.lastRunAt && schedule.lastTaskId > 0n ? (
+          <span className="text-foreground">
+            <RelativeTime date={timestampDate(schedule.lastRunAt)} />,{' '}
+            <Link
+              to="/tasks/$id"
+              params={{ id: String(schedule.lastTaskId) }}
+              search={{ org: orgId }}
+              className="text-primary hover:underline"
+            >
+              task #{String(schedule.lastTaskId)}
+            </Link>
+          </span>
+        ) : (
+          <span className="text-foreground">never</span>
+        )}
+      </span>
+    </div>
   )
 }
 

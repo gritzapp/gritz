@@ -6,16 +6,19 @@ import { Loader2, Send } from 'lucide-react'
 // TaskComposer is the instruction box at the bottom of a task's timeline. The
 // text is cleared once onSend resolves, and kept when it rejects. `disabled`
 // blocks sending without locking the textarea, for a page that can't send yet.
+// initialInstruction pre-fills the box.
 export function TaskComposer({
   onSend,
   pending,
   disabled,
+  initialInstruction = '',
 }: {
   onSend: (text: string) => Promise<unknown>
   pending: boolean
   disabled?: boolean
+  initialInstruction?: string
 }) {
-  const [instruction, setInstruction] = useState('')
+  const [instruction, setInstruction] = useState(initialInstruction)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-grow the composer to fit its content. Done in JS rather than relying on
