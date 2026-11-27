@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.4.1](https://github.com/gritzapp/gritz/compare/v5.4.0...v5.4.1) (2026-11-27)
+
+
+### Miscellaneous
+
+* catch up with v5.3.0 and v5.4.0 ([#2462](https://github.com/gritzapp/gritz/issues/2462)) ([d0be59f](https://github.com/gritzapp/gritz/commit/d0be59f210ccdcbb2de680607c426e6974130a71))
+
 ## [5.4.0](https://github.com/gritzapp/gritz/compare/v5.3.0...v5.4.0) (2026-11-27)
 
 
