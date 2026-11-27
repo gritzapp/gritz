@@ -4178,7 +4178,10 @@ type GetRunSpecInputsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Token string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
 	// The task's variables, by name, as in Task.variables.
-	Variables     map[string]string `protobuf:"bytes,2,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Variables map[string]string `protobuf:"bytes,2,rep,name=variables,proto3" json:"variables,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The task's features, by name. The runner merges them onto the workspace
+	// in this order.
+	Features      []string `protobuf:"bytes,3,rep,name=features,proto3" json:"features,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4223,6 +4226,13 @@ func (x *GetRunSpecInputsResponse) GetToken() string {
 func (x *GetRunSpecInputsResponse) GetVariables() map[string]string {
 	if x != nil {
 		return x.Variables
+	}
+	return nil
+}
+
+func (x *GetRunSpecInputsResponse) GetFeatures() []string {
+	if x != nil {
+		return x.Features
 	}
 	return nil
 }
@@ -8312,10 +8322,11 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"V\n" +
 	"\x17GetRunSpecInputsRequest\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\x03R\x06taskId\x12\"\n" +
-	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\"\xbf\x01\n" +
+	"\fcapabilities\x18\x02 \x03(\tR\fcapabilities\"\xdb\x01\n" +
 	"\x18GetRunSpecInputsResponse\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12O\n" +
-	"\tvariables\x18\x02 \x03(\v21.gritz.v1.GetRunSpecInputsResponse.VariablesEntryR\tvariables\x1a<\n" +
+	"\tvariables\x18\x02 \x03(\v21.gritz.v1.GetRunSpecInputsResponse.VariablesEntryR\tvariables\x12\x1a\n" +
+	"\bfeatures\x18\x03 \x03(\tR\bfeatures\x1a<\n" +
 	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"z\n" +

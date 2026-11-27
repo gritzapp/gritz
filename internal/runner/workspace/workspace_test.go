@@ -74,7 +74,7 @@ func TestLoadConfig_GritzRPC(t *testing.T) {
 			assert.NilError(t, err)
 			ws, err := cfg.Get("ws")
 			assert.NilError(t, err)
-			assert.DeepEqual(t, ws.AgentConfig().GritzRPC, tt.options)
+			assert.DeepEqual(t, ws.AgentConfig(nil).GritzRPC, tt.options)
 		})
 	}
 }
@@ -179,4 +179,124 @@ func TestSelect(t *testing.T) {
 			assert.DeepEqual(t, got, tt.want)
 		})
 	}
+}
+
+// testAgentWorkspace is a workspace whose agent: sets every field a feature's
+// agent: has to replace.
+func testAgentWorkspace() Workspace {
+	return Workspace{
+		Commands:     []string{"git clone repo"},
+		Capabilities: []string{"create_task"},
+		Agent: Agent{
+			Type:    "claude",
+			Cwd:     "/root/repo",
+			Prompt:  "base prompt",
+			Verbose: true,
+			Claude:  &ClaudeConfig{Model: "opus"},
+			McpServers: map[string]agent.McpServer{
+				"github": {Type: "stdio", Command: "github-mcp"},
+			},
+		},
+	}
+}
+
+func TestAgentConfig(t *testing.T) {
+	t.Parallel()
+	ws := testAgentWorkspace()
+
+	cfg := ws.AgentConfig(nil)
+
+	assert.DeepEqual(t, cfg, agent.Config{
+		Type:         "claude",
+		Cwd:          "/root/repo",
+		Prompt:       "base prompt",
+		Verbose:      true,
+		Claude:       &agent.ClaudeOptions{Model: "opus"},
+		McpServers:   map[string]agent.McpServer{"github": {Type: "stdio", Command: "github-mcp"}},
+		Commands:     []string{"git clone repo"},
+		Capabilities: []string{"create_task"},
+	})
+}
+
+// TestAgentConfig_FeatureAgent asserts a feature's agent: replaces the
+// workspace's as a whole, keeping none of its fields or servers, and that the
+// last of several wins. The workspace's commands and capabilities stay.
+func TestAgentConfig_FeatureAgent(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	ws := testAgentWorkspace()
+	features := []Feature{
+		{Agent: &Agent{Type: "codex", Codex: &CodexConfig{Model: "gpt-5-codex"}}},
+		{Agent: &Agent{
+			Type:       "dummy",
+			Cwd:        "/tmp",
+			McpServers: map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
+		}},
+		{Description: "no agent"},
+	}
+
+	// Act
+	cfg := ws.AgentConfig(features)
+
+	// Assert
+	assert.DeepEqual(t, cfg, agent.Config{
+		Type:         "dummy",
+		Cwd:          "/tmp",
+		McpServers:   map[string]agent.McpServer{"jira": {Type: "stdio", Command: "jira-mcp"}},
+		Commands:     []string{"git clone repo"},
+		Capabilities: []string{"create_task"},
+	})
+}
+
+// TestAgentConfig_FeatureMcpServers asserts the features' mcp_servers are
+// added on top of the agent config's in order, a later server replacing an
+// earlier one of the same name.
+func TestAgentConfig_FeatureMcpServers(t *testing.T) {
+	t.Parallel()
+	// Arrange
+	ws := testAgentWorkspace()
+	features := []Feature{
+		{McpServers: map[string]agent.McpServer{
+			"github": {Type: "stdio", Command: "github-mcp", Args: []string{"--readonly"}},
+			"jira":   {Type: "stdio", Command: "jira-mcp"},
+		}},
+		{McpServers: map[string]agent.McpServer{
+			"jira": {Type: "http", URL: "https://jira.example.com/mcp"},
+		}},
+	}
+
+	// Act
+	cfg := ws.AgentConfig(features)
+
+	// Assert
+	assert.DeepEqual(t, cfg.McpServers, map[string]agent.McpServer{
+		"github": {Type: "stdio", Command: "github-mcp", Args: []string{"--readonly"}},
+		"jira":   {Type: "http", URL: "https://jira.example.com/mcp"},
+	})
+}
+
+// TestAgentConfig_FeatureCommands asserts the features' commands run after
+// the workspace's, in the order of the features, a feature with agent: in
+// its position too, and that one task's commands don't leak into another's.
+func TestAgentConfig_FeatureCommands(t *testing.T) {
+	t.Parallel()
+	// Arrange - spare capacity, which appending must not write into.
+	ws := testAgentWorkspace()
+	ws.Commands = append(make([]string, 0, 8), ws.Commands...)
+	features := []Feature{
+		{Commands: []string{"install node", "install pnpm"}},
+		{Commands: []string{"install codex"}, Agent: &Agent{Type: "codex"}},
+		{Commands: []string{"install playwright"}},
+	}
+
+	// Act
+	cfg := ws.AgentConfig(features)
+	other := ws.AgentConfig([]Feature{{Commands: []string{"other"}}})
+
+	// Assert
+	assert.DeepEqual(t, cfg.Commands, []string{
+		"git clone repo", "install node", "install pnpm", "install codex", "install playwright",
+	})
+	assert.DeepEqual(t, other.Commands, []string{"git clone repo", "other"})
+	assert.DeepEqual(t, ws.Commands, []string{"git clone repo"})
 }

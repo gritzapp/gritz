@@ -26,6 +26,9 @@ type specInput struct {
 	Token string
 	// Variables are the task's variables, from GetRunSpecInputs.
 	Variables map[string]string
+	// Features are the task's features, from GetRunSpecInputs, as
+	// Workspace.Select returned them.
+	Features []workspace.Feature
 	// BinaryPath is the gritz binary in the sandbox; see
 	// backend.Backend.BinaryPath.
 	BinaryPath string
@@ -39,12 +42,16 @@ type specInput struct {
 // MCP server. It also builds the driver.v1 RunSpec the run is started with,
 // whose environment is in.RunEnv under the spec's Env.
 //
-// Each task variable X is added to the spec's Env as GRITZ_VAR_X.
+// The features are merged onto the workspace in order, later wins: each
+// feature's environment goes into the spec's Env and its secrets into its
+// Secrets, and a name set in one is removed from the other. The variables
+// gritz sets are written after them. Each task variable X is added to the
+// spec's Env as GRITZ_VAR_X.
 func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 	c, ws := in.Change, in.Workspace
 
 	// Build agent config
-	cfg := ws.AgentConfig()
+	cfg := ws.AgentConfig(in.Features)
 	mcpArgs := []string{
 		"tool", "agent-mcp",
 		"--server", in.ServerURL,
@@ -66,20 +73,35 @@ func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 		return nil, nil, fmt.Errorf("failed to marshal config: %w", err)
 	}
 
+	env, secrets := map[string]string{}, map[string]string{}
+	maps.Copy(secrets, ws.Secrets)
+	for _, f := range in.Features {
+		for name, value := range f.Environment {
+			env[name] = value
+			delete(secrets, name)
+		}
+		for name, value := range f.Secrets {
+			secrets[name] = value
+			delete(env, name)
+		}
+	}
+	// The agent's tools (the git credential helper, the GitHub MCP server)
+	// reach the server through these.
+	env["GRITZ_TASK_ID"] = fmt.Sprint(c.ID)
+	env["GRITZ_TOKEN"] = in.Token
+	env["GRITZ_SERVER"] = in.ServerURL
+	for name, value := range in.Variables {
+		env[taskvar.Env(name)] = value
+	}
+
 	spec := &backend.Spec{
 		TaskID:    c.ID,
 		Version:   c.Version,
 		Workspace: ws,
 		ServerURL: in.ServerURL,
 		Token:     in.Token,
-		// The agent's tools (the git credential helper, the GitHub MCP server)
-		// reach the server through these.
-		Env: map[string]string{
-			"GRITZ_TASK_ID": fmt.Sprint(c.ID),
-			"GRITZ_TOKEN":   in.Token,
-			"GRITZ_SERVER":  in.ServerURL,
-		},
-		Secrets: maps.Clone(ws.Secrets),
+		Env:       env,
+		Secrets:   secrets,
 		Files: []backend.File{
 			// Allow non-root agents to write to this directory.
 			{Path: path.Dir(agent.DefaultConfigStore.Path(c.ID)), Mode: 0777, Dir: true},
@@ -91,20 +113,16 @@ func buildSpecs(in specInput) (*backend.Spec, *driverv1.RunSpec, error) {
 		},
 	}
 
-	for name, value := range in.Variables {
-		spec.Env[taskvar.Env(name)] = value
+	runEnv := maps.Clone(in.RunEnv)
+	if runEnv == nil {
+		runEnv = map[string]string{}
 	}
-
-	env := maps.Clone(in.RunEnv)
-	if env == nil {
-		env = map[string]string{}
-	}
-	maps.Copy(env, spec.Env)
+	maps.Copy(runEnv, spec.Env)
 	rs := &driverv1.RunSpec{
 		TaskId:    spec.TaskID,
 		ServerUrl: spec.ServerURL,
 		Token:     spec.Token,
-		Env:       env,
+		Env:       runEnv,
 		Secrets:   maps.Clone(spec.Secrets),
 	}
 	for _, f := range spec.Files {

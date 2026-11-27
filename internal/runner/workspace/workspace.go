@@ -470,70 +470,91 @@ func (c *Config) Get(name string) (*Workspace, error) {
 	return &ws, nil
 }
 
-// AgentConfig converts the workspace agent configuration into an agent.Config.
-func (w *Workspace) AgentConfig() agent.Config {
+// AgentConfig returns the agent config of a task with the given features, in
+// the order Select returned them. The agent: of the last feature that has one
+// replaces the workspace's as a whole. The features' mcp_servers are added on
+// top in order, a later server replacing an earlier one of the same name, and
+// their commands run after the workspace's, in order.
+func (w *Workspace) AgentConfig(features []Feature) agent.Config {
+	a := &w.Agent
+	for _, f := range features {
+		if f.Agent != nil {
+			a = f.Agent
+		}
+	}
+	cfg := a.config()
+	cfg.Commands = slices.Clone(w.Commands)
+	cfg.Capabilities = w.Capabilities
+	for _, f := range features {
+		maps.Copy(cfg.McpServers, f.McpServers)
+		cfg.Commands = append(cfg.Commands, f.Commands...)
+	}
+	return cfg
+}
+
+// config converts the agent configuration into an agent.Config, without the
+// workspace-level commands and capabilities.
+func (a *Agent) config() agent.Config {
 	cfg := agent.Config{
-		Type:         w.Agent.Type,
-		Cwd:          w.Agent.Cwd,
-		Prompt:       w.Agent.Prompt,
-		Verbose:      w.Agent.Verbose,
-		McpServers:   make(map[string]agent.McpServer),
-		Commands:     w.Commands,
-		Capabilities: w.Capabilities,
+		Type:       a.Type,
+		Cwd:        a.Cwd,
+		Prompt:     a.Prompt,
+		Verbose:    a.Verbose,
+		McpServers: make(map[string]agent.McpServer),
 	}
-	if w.Agent.Claude != nil {
+	if a.Claude != nil {
 		cfg.Claude = &agent.ClaudeOptions{
-			Model: w.Agent.Claude.Model,
-			Bin:   w.Agent.Claude.Bin,
+			Model: a.Claude.Model,
+			Bin:   a.Claude.Bin,
 		}
 	}
-	if w.Agent.Codex != nil {
+	if a.Codex != nil {
 		cfg.Codex = &agent.CodexOptions{
-			Model: w.Agent.Codex.Model,
-			Bin:   w.Agent.Codex.Bin,
+			Model: a.Codex.Model,
+			Bin:   a.Codex.Bin,
 		}
 	}
-	if w.Agent.Copilot != nil {
+	if a.Copilot != nil {
 		cfg.Copilot = &agent.CopilotOptions{
-			Model: w.Agent.Copilot.Model,
-			Bin:   w.Agent.Copilot.Bin,
+			Model: a.Copilot.Model,
+			Bin:   a.Copilot.Bin,
 		}
 	}
-	if w.Agent.Cursor != nil {
+	if a.Cursor != nil {
 		cfg.Cursor = &agent.CursorOptions{
-			Model: w.Agent.Cursor.Model,
-			Bin:   w.Agent.Cursor.Bin,
+			Model: a.Cursor.Model,
+			Bin:   a.Cursor.Bin,
 		}
 	}
-	if w.Agent.Sloppy != nil {
+	if a.Sloppy != nil {
 		cfg.Sloppy = &agent.SloppyOptions{
-			Bin: w.Agent.Sloppy.Bin,
+			Bin: a.Sloppy.Bin,
 		}
 	}
-	if w.Agent.Process != nil {
+	if a.Process != nil {
 		cfg.Process = &agent.ProcessOptions{
-			Command: w.Agent.Process.Command,
+			Command: a.Process.Command,
 		}
 	}
-	if w.Agent.GritzRPC != nil {
+	if a.GritzRPC != nil {
 		cfg.GritzRPC = &agent.GritzRPCOptions{
-			Command: w.Agent.GritzRPC.Command,
-			Args:    w.Agent.GritzRPC.Args,
+			Command: a.GritzRPC.Command,
+			Args:    a.GritzRPC.Args,
 		}
 	}
-	if w.Agent.Dummy != nil {
+	if a.Dummy != nil {
 		cfg.Dummy = &agent.DummyOptions{
-			Sleep:     w.Agent.Dummy.Sleep,
-			ToolCalls: w.Agent.Dummy.ToolCalls,
-			Commands:  w.Agent.Dummy.Commands,
-			Error:     w.Agent.Dummy.Error,
+			Sleep:     a.Dummy.Sleep,
+			ToolCalls: a.Dummy.ToolCalls,
+			Commands:  a.Dummy.Commands,
+			Error:     a.Dummy.Error,
 		}
 	}
-	if w.Agent.Puppet != nil {
+	if a.Puppet != nil {
 		cfg.Puppet = &puppet.Options{
-			URL: w.Agent.Puppet.URL,
+			URL: a.Puppet.URL,
 		}
 	}
-	maps.Copy(cfg.McpServers, w.Agent.McpServers)
+	maps.Copy(cfg.McpServers, a.McpServers)
 	return cfg
 }

@@ -645,6 +645,9 @@ message GetRunSpecInputsResponse {
   string token = 1;
   // The task's variables, by name, as in Task.variables.
   map<string, string> variables = 2;
+  // The task's features, by name. The runner merges them onto the workspace
+  // in this order.
+  repeated string features = 3;
 }
 
 // VariableDecl is a variable a workspace declares; see workspaces.yaml variables:.
