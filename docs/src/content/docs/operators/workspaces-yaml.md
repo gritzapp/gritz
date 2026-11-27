@@ -230,9 +230,9 @@ Each time it starts a task, the runner checks the task's variables against its
 own `variables:` and fills in defaults. A task this config no longer accepts,
 because it sets a variable that isn't declared or lacks a required one, fails
 with the reason on its timeline. So a change to `variables:` can fail the next
-start of a task created earlier, and of every task a
-[schedule](/concepts/schedules/#variables) or a
-[routing rule](/concepts/routing-rules/#creating-tasks) saved before it creates.
+start of a task created earlier, and of every task created later from an
+[agent](/concepts/schedules/#the-agent) or a
+[routing rule](/concepts/routing-rules/#creating-tasks) saved before it.
 
 ## `capabilities`
 

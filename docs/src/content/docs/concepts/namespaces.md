@@ -43,8 +43,7 @@ namespace. You can set it on:
 
 - a task, in the **Namespace** field of the new task form;
 - a routing rule, in its **Namespace** field, for the tasks it creates and the
-  subscriptions it sees;
-- a [schedule](/concepts/schedules/), for the tasks it creates.
+  subscriptions it sees.
 
 The task page's sidebar shows a task's namespace, and agents see it in
 [`get_my_task`](/using/agent-tools/#get_my_task).

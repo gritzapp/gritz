@@ -6,8 +6,9 @@ sidebar:
 ---
 
 A schedule creates a task on a cron schedule: a nightly dependency bump, a weekly
-report, an hourly check. Each time it fires it creates a new task from its
-template, the same as one you create by hand, and the task starts at once.
+report, an hourly check. Each time it fires it creates a new task of the
+[agent](#the-agent) it names, with the schedule's instructions, and the task
+starts at once.
 
 Schedules belong to the organisation, not to the member who created them. They
 are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
@@ -17,31 +18,31 @@ are on the **Schedules** page of the [Web UI](/using/web-ui/#schedules).
 **Schedules → + Schedule** asks for:
 
 - **Name**: the name of every task it creates. Optional.
-- **Runner** and **Workspace** for its tasks.
-- **Variables**: one field per [variable](#variables) the workspace declares.
 - **Instructions**: the instruction every task starts with.
 - **Cron expression**: when to fire. See below.
 - **Timezone**: the timezone the cron expression is read in. Defaults to your
   browser's.
-- **Namespace**: the [namespace](/concepts/namespaces/) of its tasks. Optional.
-- **Auto-archive**: its tasks' [auto-archive](/concepts/tasks/#auto-archive)
-  delay. Scheduled tasks often have no one watching them, so a short delay keeps
-  them from piling up.
+- **Agent ID**: the [agent](#the-agent) its tasks belong to.
 - **Enabled**: a disabled schedule is saved but doesn't fire.
 
-## Variables
+## The agent
 
-If the workspace declares [variables](/operators/workspaces-yaml/#variables), a
-schedule sets the same values on every task it creates. They are checked against
-the workspace when you save the schedule, as when you create a task by hand.
-Leave an optional variable empty to use the workspace's default when each task
-starts.
+An agent is the organisation's saved template for a kind of task: a runner and
+workspace, an auto-archive delay, values for the workspace's
+[variables](/operators/workspaces-yaml/#variables), and a prompt. A schedule
+names one agent, and each task it creates takes the agent's runner, workspace,
+[auto-archive](/concepts/tasks/#auto-archive) delay and variables. The
+schedule's instructions take the place of the agent's prompt.
 
-The runner checks a task's variables again when it starts the task. If the
-workspace's `variables:` changed after you saved the schedule, and no longer
-accepts its values (a new required variable, or one the schedule sets that the
+The agent is read each time the schedule fires, so a change to the agent applies
+to the schedule's next task. An agent can't be deleted while a schedule names
+it: point the schedule at another agent, or delete it, first.
+
+The runner checks a task's variables when it starts the task. If the
+workspace's `variables:` changed after the agent was saved, and no longer
+accepts its values (a new required variable, or one the agent sets that the
 workspace no longer declares), the schedule still fires, and the task fails with
-the reason on its timeline. Edit the schedule to fix it.
+the reason on its timeline. Fix the agent's variables to fix it.
 
 ## Cron expressions
 
@@ -80,8 +81,8 @@ schedules too, and it doesn't change the schedule's next run or its last run.
 
 ## Editing, disabling and deleting
 
-Changes to a schedule apply to the tasks it creates from then on; tasks it
-already created keep their settings. Changing the cron expression or timezone
+Changes to a schedule, or to its agent, apply to the tasks it creates from then
+on; tasks it already created keep their settings. Changing the cron expression or timezone
 moves its next run. Turning a schedule off clears its next run; turning it back
 on schedules the next due time from now, without catching up on the runs it
 missed. Deleting a schedule doesn't touch the tasks it created.
