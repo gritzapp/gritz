@@ -190,11 +190,11 @@ func TestPlanDeliveryAdmission(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name      string
-		public    bool
+		eventType string
 		delivered bool
 	}{
-		{name: "public kind", public: true, delivered: true},
-		{name: "member-only kind"},
+		{name: "public event", eventType: "pull_request_review", delivered: true},
+		{name: "member-only event", eventType: "issue_comment"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -204,7 +204,7 @@ func TestPlanDeliveryAdmission(t *testing.T) {
 			org := teststore.CreateOrg(t, s, nil)
 			const url = "https://github.com/o/r/pull/1"
 			agent := teststore.CreateAgent(t, s, org, &model.Agent{Links: []model.AgentLink{
-				{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}, Public: tt.public},
+				{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}, {Type: "pull_request_review", Public: true}}},
 			}})
 			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: agent.ID,
@@ -215,7 +215,7 @@ func TestPlanDeliveryAdmission(t *testing.T) {
 			// Act - an actor who isn't a member of the event's org.
 			plan, err := r.Plan(t.Context(), eventrouter.InputEvent{
 				Source: "github",
-				Type:   "issue_comment",
+				Type:   tt.eventType,
 				URL:    url,
 				Orgs:   []int64{org.OrgID},
 			})
@@ -806,7 +806,7 @@ func TestRouteCustomEventDelivery(t *testing.T) {
 			}}))
 			const url = "https://dynatrace.example.com/problems/1"
 			agent := teststore.CreateAgent(t, s, org, &model.Agent{
-				Links: []model.AgentLink{{Type: "custom.url", Events: []model.AgentLinkEvent{{Type: "problem"}}, Public: true}},
+				Links: []model.AgentLink{{Type: "custom.url", Events: []model.AgentLinkEvent{{Type: "problem", Public: true}}}},
 			})
 			task := teststore.CreateTask(t, s, org, &teststore.TaskOptions{
 				AgentID: agent.ID,
@@ -846,7 +846,7 @@ func TestRouteOnRouteOutcome(t *testing.T) {
 		Triggers: []model.AgentTrigger{{Source: "github", Type: "issue_comment", Public: true}},
 	})
 	agent := teststore.CreateAgent(t, s, delivering, &model.Agent{
-		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment"}}, Public: true}},
+		Links: []model.AgentLink{{Type: "github.pr", Events: []model.AgentLinkEvent{{Type: "issue_comment", Public: true}}}},
 	})
 	teststore.CreateTask(t, s, delivering, &teststore.TaskOptions{
 		AgentID: agent.ID,

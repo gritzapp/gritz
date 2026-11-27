@@ -7607,9 +7607,7 @@ type AgentLink struct {
 	// The event types a link of this kind delivers, each with the conditions
 	// its events must meet. A link of a kind with none delivers no event; it
 	// still holds its claim.
-	Events []*AgentLinkEvent `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
-	// Whether it also delivers events from people who aren't members of the org.
-	Public        bool `protobuf:"varint,5,opt,name=public,proto3" json:"public,omitempty"`
+	Events        []*AgentLinkEvent `protobuf:"bytes,4,rep,name=events,proto3" json:"events,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7672,20 +7670,16 @@ func (x *AgentLink) GetEvents() []*AgentLinkEvent {
 	return nil
 }
 
-func (x *AgentLink) GetPublic() bool {
-	if x != nil {
-		return x.Public
-	}
-	return false
-}
-
 // AgentLinkEvent is an event type a link kind delivers.
 type AgentLinkEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// An event type of the link type's source that declares the link type.
 	Type string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
 	// Validated as a trigger's conditions on the event type are.
-	Conditions    []*RuleCondition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"` // All must hold.
+	Conditions []*RuleCondition `protobuf:"bytes,2,rep,name=conditions,proto3" json:"conditions,omitempty"` // All must hold.
+	// Whether it also delivers events of this type from people who aren't
+	// members of the org.
+	Public        bool `protobuf:"varint,3,opt,name=public,proto3" json:"public,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7732,6 +7726,13 @@ func (x *AgentLinkEvent) GetConditions() []*RuleCondition {
 		return x.Conditions
 	}
 	return nil
+}
+
+func (x *AgentLinkEvent) GetPublic() bool {
+	if x != nil {
+		return x.Public
+	}
+	return false
 }
 
 // CreateAgentRequest creates agent in the caller's org. agent.id is ignored.
@@ -8667,18 +8668,18 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\x06public\x18\x04 \x01(\bR\x06public\x12\x19\n" +
 	"\byield_to\x18\x05 \x03(\tR\ayieldTo\x12\x12\n" +
 	"\x04link\x18\x06 \x01(\tR\x04link\x12\x16\n" +
-	"\x06prompt\x18\a \x01(\tR\x06prompt\"\x93\x01\n" +
+	"\x06prompt\x18\a \x01(\tR\x06prompt\"\x89\x01\n" +
 	"\tAgentLink\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
 	"\x05claim\x18\x03 \x01(\tR\x05claim\x120\n" +
-	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06events\x12\x16\n" +
-	"\x06public\x18\x05 \x01(\bR\x06public\"]\n" +
+	"\x06events\x18\x04 \x03(\v2\x18.gritz.v1.AgentLinkEventR\x06eventsJ\x04\b\x05\x10\x06R\x06public\"u\n" +
 	"\x0eAgentLinkEvent\x12\x12\n" +
 	"\x04type\x18\x01 \x01(\tR\x04type\x127\n" +
 	"\n" +
 	"conditions\x18\x02 \x03(\v2\x17.gritz.v1.RuleConditionR\n" +
-	"conditions\";\n" +
+	"conditions\x12\x16\n" +
+	"\x06public\x18\x03 \x01(\bR\x06public\";\n" +
 	"\x12CreateAgentRequest\x12%\n" +
 	"\x05agent\x18\x01 \x01(\v2\x0f.gritz.v1.AgentR\x05agent\"<\n" +
 	"\x13CreateAgentResponse\x12%\n" +

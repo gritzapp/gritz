@@ -116,8 +116,8 @@ func (s *Server) SetCustomEventTypes(ctx context.Context, req *gritzv1.SetCustom
 // validates a custom event, and rejected with InvalidArgument for an unknown
 // source or type, a missing or non-absolute http(s) url, or an undeclared attr.
 // An event of a built-in source routes as the caller; a custom event routes
-// with no actor, as from the webhook, so only public triggers and link kinds
-// admit it.
+// with no actor, as from the webhook, so only public triggers and public
+// events of link kinds admit it.
 func (s *Server) TestEvent(ctx context.Context, req *gritzv1.TestEventRequest) (*gritzv1.TestEventResponse, error) {
 	caller := apiauth.MustCaller(ctx)
 	// Fire mutates (wakes/creates tasks), so it needs OpOrgWrite — the same scope

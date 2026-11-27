@@ -65,6 +65,7 @@ import {
   type AgentFormValues,
   type ConditionDraft,
   type ConditionOp,
+  type LinkEventDraft,
   type LinkKindDraft,
   type ScheduleDraft,
   type TriggerDraft,
@@ -1255,13 +1256,13 @@ function LinkKindEditor({
     onChange({
       ...link,
       events: on
-        ? [...link.events, { type, conditions: [] }]
+        ? [...link.events, { type, conditions: [], public: false }]
         : link.events.filter((e) => e.type !== type),
     })
-  const setEventConditions = (type: string, conditions: ConditionDraft[]) =>
+  const setEvent = (type: string, update: Partial<LinkEventDraft>) =>
     onChange({
       ...link,
-      events: link.events.map((e) => (e.type === type ? { ...e, conditions } : e)),
+      events: link.events.map((e) => (e.type === type ? { ...e, ...update } : e)),
     })
 
   return (
@@ -1294,6 +1295,7 @@ function LinkKindEditor({
               ) : (
                 link.events.map((event) => (
                   <Badge key={event.type} variant="secondary" className="font-normal">
+                    {event.public && <Globe aria-label="Public" />}
                     {deliverable.find((t) => t.type === event.type)?.label ?? event.type}
                     {event.conditions.length > 0 && (
                       <span className="text-muted-foreground">
@@ -1310,12 +1312,6 @@ function LinkKindEditor({
                 <Badge variant="outline" className="font-mono font-normal">
                   <Shield />
                   claims {link.claim.trim()}
-                </Badge>
-              )}
-              {link.public && (
-                <Badge variant="outline" className="font-normal">
-                  <Globe />
-                  Public
                 </Badge>
               )}
             </div>
@@ -1426,7 +1422,13 @@ function LinkKindEditor({
                       <ConditionsEditor
                         conditions={event.conditions}
                         attrs={t.attrs}
-                        onChange={(conditions) => setEventConditions(t.type, conditions)}
+                        onChange={(conditions) => setEvent(t.type, { conditions })}
+                      />
+                      <PublicSwitch
+                        id={`${cid}-public`}
+                        checked={event.public}
+                        onChange={(checked) => setEvent(t.type, { public: checked })}
+                        description="Also deliver events of this type from people who aren't members of the org."
                       />
                     </div>
                   )}
@@ -1436,13 +1438,6 @@ function LinkKindEditor({
           </div>
         )}
       </div>
-
-      <PublicSwitch
-        id={`${id}-public`}
-        checked={link.public}
-        onChange={(checked) => onChange({ ...link, public: checked })}
-        description="Also deliver events from people who aren't members of the org."
-      />
     </RuleCard>
   )
 }

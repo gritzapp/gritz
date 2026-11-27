@@ -39,10 +39,11 @@ export interface TriggerDraft {
 }
 
 // LinkEventDraft is an event type a link kind delivers, with the conditions
-// its events must meet.
+// its events must meet and whether it delivers them from non-members.
 export interface LinkEventDraft {
   type: string
   conditions: ConditionDraft[]
+  public: boolean
 }
 
 export interface LinkKindDraft {
@@ -52,7 +53,6 @@ export interface LinkKindDraft {
   // Event types of the link type's source; with none, the kind delivers
   // nothing.
   events: LinkEventDraft[]
-  public: boolean
 }
 
 // ScheduleDraft is a schedule as the agent editor edits it. id is the saved
@@ -128,7 +128,6 @@ export const emptyLinkKind: LinkKindDraft = {
   kind: '',
   claim: '',
   events: [],
-  public: false,
 }
 
 export function agentFormValues(agent: Agent): AgentFormValues {
@@ -164,8 +163,8 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       events: l.events.map((e) => ({
         type: e.type,
         conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+        public: e.public,
       })),
-      public: l.public,
     })),
   }
 }
@@ -206,8 +205,8 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       events: l.events.map((e) => ({
         type: e.type,
         conditions: e.conditions.map((c) => ({ attr: c.attr, op: c.op, value: c.value })),
+        public: e.public,
       })),
-      public: l.public,
     })),
   })
 }

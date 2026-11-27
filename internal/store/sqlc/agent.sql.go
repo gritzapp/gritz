@@ -214,8 +214,8 @@ type ListAgentsForEventRow struct {
 // The live agents of every org an event routes in, with whether the actor is
 // a member of the org. Member orgs (joined via org_members) have is_member =
 // TRUE. The orgs in org_ids (the event's orgs) that the actor is NOT a member
-// of have is_member = FALSE; the caller admits only public triggers and link
-// kinds in them. Membership wins on overlap (the NOT EXISTS drops a passed org
+// of have is_member = FALSE; the caller admits only public triggers and public
+// events of link kinds in them. Membership wins on overlap (the NOT EXISTS drops a passed org
 // the actor already belongs to). An empty org_ids reduces this to the member
 // orgs; an empty user_id yields just the non-member branch.
 func (q *Queries) ListAgentsForEvent(ctx context.Context, arg ListAgentsForEventParams) ([]ListAgentsForEventRow, error) {

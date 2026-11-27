@@ -33,7 +33,7 @@ type InputEvent struct {
 	// independent of the actor's membership (GitHub: the orgs sharing the App
 	// installation; Atlassian: the org in the webhook's ?org= param; custom: the
 	// org it was posted to). It gates non-member routing: a public trigger or
-	// link kind admits the event in one of these orgs even when UserID is empty
+	// a link kind's public event admits the event in one of these orgs even when UserID is empty
 	// or the actor is not a member.
 	Orgs []int64
 	// Attrs carries the event's matchable dimensions keyed by dimension name
@@ -151,8 +151,8 @@ type Router struct {
 //   - Delivery: the subscribed links on the event's resource — the canonical
 //     URL its event type's link types give it — whose kind, on the task's
 //     agent, lists the event's type with conditions that all hold, and admits
-//     the actor: a member, or anyone for a public kind. Each task gets the event once, through its
-//     first matching link.
+//     the actor: a member, or anyone when that event entry is public. Each
+//     task gets the event once, through its first matching link.
 //   - Triggers: each agent's first trigger that matches the event and admits
 //     the actor (a public trigger, for a non-member). A trigger with YieldTo
 //     yields while an unarchived task holds one of those claims on the
@@ -239,7 +239,7 @@ func (r *Router) Plan(ctx context.Context, input InputEvent) (*Plan, error) {
 			if !ok || !conditionsHold(entry.Conditions, input) {
 				continue
 			}
-			if !member[link.OrgID] && !kind.Public {
+			if !member[link.OrgID] && !entry.Public {
 				continue
 			}
 			delivered[link.Link.TaskID] = true
