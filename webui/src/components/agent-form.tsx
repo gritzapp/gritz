@@ -23,7 +23,7 @@ import { VariableFields } from '@/components/variable-fields'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { externalSourceStyle } from '@/components/external-source'
-import { AgentActivity, DeleteAgentAction } from '@/components/agent-rail'
+import { DeleteAgentAction } from '@/components/delete-agent-action'
 import { useOrgId } from '@/hooks/use-org-id'
 import { cn } from '@/lib/utils'
 import {
@@ -32,7 +32,6 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
-  FileText,
   FlaskConical,
   Globe,
   Info,
@@ -72,12 +71,6 @@ const NO_LINK = '__none__'
 let keySeq = 0
 const newKey = () => keySeq++
 
-const SECTIONS = [
-  { id: 'agent-template', label: 'Template', icon: FileText },
-  { id: 'agent-triggers', label: 'Triggers', icon: Zap },
-  { id: 'agent-links', label: 'Link kinds', icon: Link2 },
-] as const
-
 function moveItem<T>(items: T[], index: number, by: number): T[] {
   const next = [...items]
   const [moved] = next.splice(index, 1)
@@ -95,9 +88,8 @@ interface AgentFormProps {
   onSubmit: (values: AgentFormValues) => void | Promise<void>
 }
 
-// AgentForm is the agent page: a left rail that summarises the agent and
-// navigates its sections, and a main column that edits its task template, its
-// triggers and its link kinds. The trigger and link kind editors are driven by
+// AgentForm is the agent page: a header with the agent's name and actions,
+// and a column that edits its task template, its triggers and its link kinds. The trigger and link kind editors are driven by
 // GetEventTypes.
 export function AgentForm({
   agentId,
@@ -197,92 +189,38 @@ export function AgentForm({
   }
 
   const title = values.name.trim() || 'New agent'
-  const counts: Record<string, number> = {
-    'agent-triggers': values.triggers.length,
-    'agent-links': values.links.length,
-  }
-
   return (
     <form onSubmit={handleSubmit} className="flex h-full min-h-0">
-      <aside className="hidden w-[300px] shrink-0 flex-col border-r bg-sidebar md:flex">
-        <div className="flex h-12 shrink-0 items-center border-b px-3.5">
-          <Link
-            to="/agents"
-            search={{ org: orgId }}
-            className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Agents
-          </Link>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto py-4">
-          <div className="flex items-center gap-3 px-4 pb-4">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Bot className="h-5 w-5" />
-            </span>
-            <h1 className="min-w-0 truncate text-[15px] font-semibold leading-snug" title={title}>
-              {title}
-            </h1>
-          </div>
-
-          <nav className="flex flex-col gap-0.5 px-2">
-            {SECTIONS.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() =>
-                  document
-                    .getElementById(id)
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-                className="flex h-9 cursor-pointer items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-              >
-                <Icon className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-                {counts[id] > 0 && (
-                  <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-semibold leading-none">
-                    {counts[id]}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-
-          {agentId !== undefined && <AgentActivity agentId={agentId} />}
-        </div>
-
-        <div className="flex shrink-0 flex-col gap-0.5 border-t p-2">
-          <Button
-            asChild
-            variant="ghost"
-            className="h-9 w-full justify-start gap-3 px-3 font-medium text-muted-foreground"
-          >
-            <Link to="/agents/test-event" search={{ org: orgId }}>
-              <FlaskConical className="h-4 w-4" />
-              Test event
-            </Link>
-          </Button>
-          {agentId !== undefined && (
-            <DeleteAgentAction agentId={agentId} name={initialValues.name} />
-          )}
-        </div>
-      </aside>
-
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-3xl space-y-12 px-6 py-8">
-            <div className="flex items-center gap-2 md:hidden">
+            <header className="space-y-3">
               <Link
                 to="/agents"
                 search={{ org: orgId }}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Agents"
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
               >
-                <ChevronLeft className="h-5 w-5" />
+                <ChevronLeft className="h-4 w-4" />
+                Agents
               </Link>
-              <h1 className="truncate text-lg font-semibold">{title}</h1>
-            </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                  <Bot className="h-5 w-5" />
+                </span>
+                <h1 className="min-w-0 flex-1 truncate text-2xl font-semibold tracking-tight">
+                  {title}
+                </h1>
+                <Button asChild variant="outline" size="sm">
+                  <Link to="/agents/test-event" search={{ org: orgId }}>
+                    <FlaskConical className="h-4 w-4" />
+                    Test event
+                  </Link>
+                </Button>
+                {agentId !== undefined && (
+                  <DeleteAgentAction agentId={agentId} name={initialValues.name} />
+                )}
+              </div>
+            </header>
 
             <section id="agent-template" className="scroll-mt-8 space-y-5">
               <SectionHeading
