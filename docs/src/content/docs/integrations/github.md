@@ -201,10 +201,10 @@ Start a task whenever a push to `master` changes a database migration:
   database."
 
 Wake the task that opened a pull request when one of the pull request's checks
-fails. Give its pull request link kind the event GitHub: PR Check Run Completed,
-and make it **Public**, so the checks of pushes by agents and bots count too.
-Every completed check is delivered, successes included; the agent sees the
-`conclusion` and can ignore a success.
+fails. Give its pull request link kind the event GitHub: PR Check Run Completed
+with the condition `conclusion glob {failure,timed_out,startup_failure}`, and make it
+**Public**, so the checks of pushes by agents and bots count too. Without the
+condition, every completed check is delivered, successes included.
 
 Start one task when a workflow run fails on `master`:
 

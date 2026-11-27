@@ -151,21 +151,24 @@ Each link kind has:
   of the same type, such as `owned-pr` for the pull requests its tasks open and
   `github.pr` for the ones they only watch.
 - **Claim**: an optional name the links of this kind hold. See [Claims](#claims).
-- **Events**: the event types a link of this kind delivers. Only event types
-  that can name the link type are offered. Leave all of them unchecked to
-  deliver every one.
+- **Events**: the event types a link of this kind delivers, each with optional
+  conditions on the event's attributes, as a [trigger's](#triggers). Only event
+  types that can name the link type are offered. A kind with no events checked
+  delivers nothing; its links still hold its claim.
 - **Public**: also deliver events from people who aren't members of the
   organisation. See [Members and public](#members-and-public).
 
 An event on a subscribed link's resource is delivered to the task when the
-link's kind lists the event's type. Delivery always wakes the task: a finished
+link's kind lists the event's type and the event meets every condition on that
+type. Delivery always wakes the task: a finished
 task starts a new run, and a running one runs again when its current run ends.
 A task with several links to the same resource gets each event once. Delivery
 doesn't depend on any trigger: an event can be delivered to one task and create
 another through a trigger, of the same agent or another one.
 
 Which events a link receives is read from its kind on the agent each time an
-event arrives, so editing a kind's events applies to existing links too.
+event arrives, so editing a kind's events or their conditions applies to
+existing links too.
 Removing a kind stops delivery to the links created with it.
 
 ## Claims

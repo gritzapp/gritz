@@ -66,8 +66,8 @@ through [custom events](/integrations/custom-events/). For each event, in each
 organisation it belongs to, gritz:
 
 1. **Delivers it to subscribed tasks.** Every task with a subscribed link to the
-   event's resource gets the event, if the link's kind lists the event's type
-   and the event's author is a member or the kind is
+   event's resource gets the event, if the link's kind lists the event's type,
+   the event meets that type's conditions, and the event's author is a member or the kind is
    [public](/concepts/agents/#members-and-public). Delivery wakes the task.
 2. **Runs every agent's triggers.** Each [agent](/concepts/agents/) whose
    trigger matches the event creates a task of its own, with the event as its
