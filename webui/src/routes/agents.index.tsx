@@ -156,10 +156,7 @@ function AgentRow({ agent, eventTypes }: { agent: Agent; eventTypes: EventTypeDe
       </TableCell>
       <TableCell className="align-top">
         <div className="flex justify-end gap-1">
-          <Link
-            to="/tasks/new"
-            search={{ org: orgId, agent: String(agent.id), instruction: agent.prompt || undefined }}
-          >
+          <Link to="/tasks/new" search={{ org: orgId, agent: String(agent.id) }}>
             <Button variant="outline" size="sm" aria-label="Run agent" title="Run agent">
               <Play className="h-4 w-4" />
             </Button>

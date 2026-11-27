@@ -10,16 +10,15 @@ import { NewTaskSidebar } from '@/components/task-sidebar'
 import { Label } from '@/components/ui/label'
 import { TaskComposer } from '@/components/task-composer'
 
-// agent and instruction pre-select an agent and pre-fill the first
-// instruction, as the Agents list's run button does.
-type NewTaskSearch = { agent?: string; instruction?: string }
+// agent pre-selects an agent and pre-fills the first instruction with its
+// prompt, as the Agents list's run button does.
+type NewTaskSearch = { agent?: string }
 
 export const Route = createFileRoute('/tasks/new')({
   // Another org's agent doesn't apply.
   staticData: { orgSwitchRedirect: '/tasks/new' },
   validateSearch: (search: Record<string, unknown>): NewTaskSearch => ({
     agent: typeof search.agent === 'string' ? search.agent : undefined,
-    instruction: typeof search.instruction === 'string' ? search.instruction : undefined,
   }),
   component: NewTaskPage,
 })
@@ -43,7 +42,10 @@ function NewTaskPage() {
     setLastAgentId(id)
   }
   // The remembered agent may have been deleted since.
-  const agent = useAgent(/^\d+$/.test(agentId) ? BigInt(agentId) : 0n)
+  const agent = useAgent(agentIdBigInt(agentId))
+  // The URL's agent's prompt, once the agents have loaded. Picking another
+  // agent doesn't change it.
+  const urlAgent = useAgent(agentIdBigInt(search.agent ?? ''))
 
   const mutation = useMutation(createTask, {
     onSuccess: (data) => {
@@ -97,10 +99,14 @@ function NewTaskPage() {
             }
             pending={mutation.isPending}
             disabled={!agent}
-            initialInstruction={search.instruction}
+            initialInstruction={urlAgent?.prompt}
           />
         </div>
       </main>
     </div>
   )
+}
+
+function agentIdBigInt(id: string): bigint {
+  return /^\d+$/.test(id) ? BigInt(id) : 0n
 }
