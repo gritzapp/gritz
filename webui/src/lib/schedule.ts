@@ -1,7 +1,7 @@
 import { timestampDate } from '@bufbuild/protobuf/wkt'
 import type { Timestamp } from '@bufbuild/protobuf/wkt'
 
-// DEFAULT_CRON is what a fresh create form starts with — a valid, unsurprising
+// DEFAULT_CRON is what a new schedule starts with — a valid, unsurprising
 // daily schedule the user can adjust.
 export const DEFAULT_CRON = '0 9 * * *'
 
@@ -15,7 +15,7 @@ export function browserTimezone(): string {
   }
 }
 
-// timezoneOptions returns the full IANA timezone list the schedule form's
+// timezoneOptions returns the full IANA timezone list a schedule's timezone
 // selector offers, with "UTC" pinned first. Uses Intl.supportedValuesOf when the
 // runtime exposes it (all current evergreen browsers) and falls back to a small
 // hand-picked list plus the viewer's own zone otherwise, so the control is never

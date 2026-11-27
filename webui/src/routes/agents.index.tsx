@@ -6,7 +6,8 @@ import {
   getEventTypes,
   listAgents,
 } from '@/gen/gritz/v1/gritz-GritzService_connectquery'
-import type { Agent, EventTypeDef } from '@/gen/gritz/v1/gritz_pb'
+import type { Agent, AgentSchedule, EventTypeDef } from '@/gen/gritz/v1/gritz_pb'
+import { timestampMs } from '@bufbuild/protobuf/wkt'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -25,9 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FlaskConical, Loader2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FlaskConical, Loader2, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { linkKindName, useInvalidateAgents } from '@/lib/agents'
 import { findEventType } from '@/lib/event-types'
+import { nextRunLabel } from '@/lib/schedule'
 import { useOrgId } from '@/hooks/use-org-id'
 
 export const Route = createFileRoute('/agents/')({
@@ -67,8 +69,8 @@ function AgentsPage() {
         <div className="text-destructive">Error: {error.message}</div>
       ) : agents.length === 0 ? (
         <div className="text-muted-foreground text-center py-8">
-          No agents yet. An agent is a task template plus the triggers that create its tasks and the
-          links its tasks subscribe to.
+          No agents yet. An agent is a task template plus the triggers and schedules that create its
+          tasks and the links its tasks subscribe to.
         </div>
       ) : (
         <Table>
@@ -77,6 +79,7 @@ function AgentsPage() {
               <TableHead>Name</TableHead>
               <TableHead className="hidden md:table-cell">Runner / Workspace</TableHead>
               <TableHead>Triggers</TableHead>
+              <TableHead className="hidden sm:table-cell">Next run</TableHead>
               <TableHead className="hidden lg:table-cell">Link kinds</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -134,6 +137,9 @@ function AgentRow({ agent, eventTypes }: { agent: Agent; eventTypes: EventTypeDe
           </div>
         )}
       </TableCell>
+      <TableCell className="hidden sm:table-cell align-top">
+        <NextRun schedules={agent.schedules} />
+      </TableCell>
       <TableCell className="hidden lg:table-cell align-top">
         {agent.links.length === 0 ? (
           <span className="text-muted-foreground">None</span>
@@ -150,6 +156,11 @@ function AgentRow({ agent, eventTypes }: { agent: Agent; eventTypes: EventTypeDe
       </TableCell>
       <TableCell className="align-top">
         <div className="flex justify-end gap-1">
+          <Link to="/tasks/new" search={{ org: orgId, agent: String(agent.id) }}>
+            <Button variant="outline" size="sm" aria-label="Run agent" title="Run agent">
+              <Play className="h-4 w-4" />
+            </Button>
+          </Link>
           <Link to="/agents/$id" params={{ id: String(agent.id) }} search={{ org: orgId }}>
             <Button variant="outline" size="sm" aria-label="Edit agent">
               <Pencil className="h-4 w-4" />
@@ -174,9 +185,8 @@ function AgentRow({ agent, eventTypes }: { agent: Agent; eventTypes: EventTypeDe
           <DialogHeader>
             <DialogTitle>Delete agent?</DialogTitle>
             <DialogDescription>
-              This deletes the agent “{agent.name}”. An agent can&apos;t be deleted while an
-              unarchived task or a schedule belongs to it: archive its tasks and repoint or delete
-              its schedules first.
+              This deletes the agent “{agent.name}”. Its schedules are deleted with it. An agent
+              can&apos;t be deleted while an unarchived task belongs to it: archive its tasks first.
             </DialogDescription>
           </DialogHeader>
           {deleteMutation.error && (
@@ -202,5 +212,25 @@ function AgentRow({ agent, eventTypes }: { agent: Agent; eventTypes: EventTypeDe
         </DialogContent>
       </Dialog>
     </TableRow>
+  )
+}
+
+// NextRun is the earliest next run among the agent's enabled schedules, with
+// the count of its schedules.
+function NextRun({ schedules }: { schedules: AgentSchedule[] }) {
+  if (schedules.length === 0) return <span className="text-muted-foreground">None</span>
+  let next: AgentSchedule['nextRunAt']
+  for (const s of schedules) {
+    if (s.nextRunAt && (!next || timestampMs(s.nextRunAt) < timestampMs(next))) next = s.nextRunAt
+  }
+  return (
+    <div className="space-y-0.5">
+      <div className={next ? undefined : 'text-muted-foreground'}>
+        {next ? nextRunLabel(next) : 'All disabled'}
+      </div>
+      <div className="text-muted-foreground text-xs">
+        {schedules.length === 1 ? '1 schedule' : `${schedules.length} schedules`}
+      </div>
+    </div>
   )
 }

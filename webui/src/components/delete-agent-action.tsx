@@ -49,9 +49,8 @@ export function DeleteAgentAction({ agentId, name }: { agentId: bigint; name: st
           <DialogHeader>
             <DialogTitle>Delete agent?</DialogTitle>
             <DialogDescription>
-              This deletes the agent “{name}”. An agent can&apos;t be deleted while an unarchived
-              task or a schedule belongs to it: archive its tasks and repoint or delete its
-              schedules first.
+              This deletes the agent “{name}”. Its schedules are deleted with it. An agent
+              can&apos;t be deleted while an unarchived task belongs to it: archive its tasks first.
             </DialogDescription>
           </DialogHeader>
           {mutation.error && (

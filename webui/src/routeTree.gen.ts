@@ -24,13 +24,10 @@ import { Route as KeysIndexRouteImport } from './routes/keys.index'
 import { Route as KeysNewRouteImport } from './routes/keys.new'
 import { Route as MembersIndexRouteImport } from './routes/members.index'
 import { Route as OauthAuthorizeRouteImport } from './routes/oauth.authorize'
-import { Route as SchedulesIndexRouteImport } from './routes/schedules.index'
-import { Route as SchedulesNewRouteImport } from './routes/schedules.new'
 import { Route as TasksIndexRouteImport } from './routes/tasks.index'
 import { Route as TasksIdRouteImport } from './routes/tasks.$id'
 import { Route as TasksNewRouteImport } from './routes/tasks.new'
 import { Route as WorkspacesIndexRouteImport } from './routes/workspaces.index'
-import { Route as SchedulesIdEditRouteImport } from './routes/schedules.$id.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -107,16 +104,6 @@ const OauthAuthorizeRoute = OauthAuthorizeRouteImport.update({
   path: '/oauth/authorize',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SchedulesIndexRoute = SchedulesIndexRouteImport.update({
-  id: '/schedules/',
-  path: '/schedules/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SchedulesNewRoute = SchedulesNewRouteImport.update({
-  id: '/schedules/new',
-  path: '/schedules/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TasksIndexRoute = TasksIndexRouteImport.update({
   id: '/tasks/',
   path: '/tasks/',
@@ -137,11 +124,6 @@ const WorkspacesIndexRoute = WorkspacesIndexRouteImport.update({
   path: '/workspaces/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SchedulesIdEditRoute = SchedulesIdEditRouteImport.update({
-  id: '/schedules/$id/edit',
-  path: '/schedules/$id/edit',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -155,17 +137,14 @@ export interface FileRoutesByFullPath {
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
   '/agents/': typeof AgentsIndexRoute
   '/events/': typeof EventsIndexRoute
   '/keys/': typeof KeysIndexRoute
   '/members/': typeof MembersIndexRoute
-  '/schedules/': typeof SchedulesIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
-  '/schedules/$id/edit': typeof SchedulesIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -179,17 +158,14 @@ export interface FileRoutesByTo {
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
   '/agents': typeof AgentsIndexRoute
   '/events': typeof EventsIndexRoute
   '/keys': typeof KeysIndexRoute
   '/members': typeof MembersIndexRoute
-  '/schedules': typeof SchedulesIndexRoute
   '/tasks': typeof TasksIndexRoute
   '/workspaces': typeof WorkspacesIndexRoute
-  '/schedules/$id/edit': typeof SchedulesIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -204,17 +180,14 @@ export interface FileRoutesById {
   '/github/setup': typeof GithubSetupRoute
   '/keys/new': typeof KeysNewRoute
   '/oauth/authorize': typeof OauthAuthorizeRoute
-  '/schedules/new': typeof SchedulesNewRoute
   '/tasks/$id': typeof TasksIdRoute
   '/tasks/new': typeof TasksNewRoute
   '/agents/': typeof AgentsIndexRoute
   '/events/': typeof EventsIndexRoute
   '/keys/': typeof KeysIndexRoute
   '/members/': typeof MembersIndexRoute
-  '/schedules/': typeof SchedulesIndexRoute
   '/tasks/': typeof TasksIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
-  '/schedules/$id/edit': typeof SchedulesIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -230,17 +203,14 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/schedules/new'
     | '/tasks/$id'
     | '/tasks/new'
     | '/agents/'
     | '/events/'
     | '/keys/'
     | '/members/'
-    | '/schedules/'
     | '/tasks/'
     | '/workspaces/'
-    | '/schedules/$id/edit'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -254,17 +224,14 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/schedules/new'
     | '/tasks/$id'
     | '/tasks/new'
     | '/agents'
     | '/events'
     | '/keys'
     | '/members'
-    | '/schedules'
     | '/tasks'
     | '/workspaces'
-    | '/schedules/$id/edit'
   id:
     | '__root__'
     | '/'
@@ -278,17 +245,14 @@ export interface FileRouteTypes {
     | '/github/setup'
     | '/keys/new'
     | '/oauth/authorize'
-    | '/schedules/new'
     | '/tasks/$id'
     | '/tasks/new'
     | '/agents/'
     | '/events/'
     | '/keys/'
     | '/members/'
-    | '/schedules/'
     | '/tasks/'
     | '/workspaces/'
-    | '/schedules/$id/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -303,17 +267,14 @@ export interface RootRouteChildren {
   GithubSetupRoute: typeof GithubSetupRoute
   KeysNewRoute: typeof KeysNewRoute
   OauthAuthorizeRoute: typeof OauthAuthorizeRoute
-  SchedulesNewRoute: typeof SchedulesNewRoute
   TasksIdRoute: typeof TasksIdRoute
   TasksNewRoute: typeof TasksNewRoute
   AgentsIndexRoute: typeof AgentsIndexRoute
   EventsIndexRoute: typeof EventsIndexRoute
   KeysIndexRoute: typeof KeysIndexRoute
   MembersIndexRoute: typeof MembersIndexRoute
-  SchedulesIndexRoute: typeof SchedulesIndexRoute
   TasksIndexRoute: typeof TasksIndexRoute
   WorkspacesIndexRoute: typeof WorkspacesIndexRoute
-  SchedulesIdEditRoute: typeof SchedulesIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -423,20 +384,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OauthAuthorizeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/schedules/': {
-      id: '/schedules/'
-      path: '/schedules'
-      fullPath: '/schedules/'
-      preLoaderRoute: typeof SchedulesIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/schedules/new': {
-      id: '/schedules/new'
-      path: '/schedules/new'
-      fullPath: '/schedules/new'
-      preLoaderRoute: typeof SchedulesNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/tasks/': {
       id: '/tasks/'
       path: '/tasks'
@@ -465,13 +412,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/schedules/$id/edit': {
-      id: '/schedules/$id/edit'
-      path: '/schedules/$id/edit'
-      fullPath: '/schedules/$id/edit'
-      preLoaderRoute: typeof SchedulesIdEditRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -487,17 +427,14 @@ const rootRouteChildren: RootRouteChildren = {
   GithubSetupRoute: GithubSetupRoute,
   KeysNewRoute: KeysNewRoute,
   OauthAuthorizeRoute: OauthAuthorizeRoute,
-  SchedulesNewRoute: SchedulesNewRoute,
   TasksIdRoute: TasksIdRoute,
   TasksNewRoute: TasksNewRoute,
   AgentsIndexRoute: AgentsIndexRoute,
   EventsIndexRoute: EventsIndexRoute,
   KeysIndexRoute: KeysIndexRoute,
   MembersIndexRoute: MembersIndexRoute,
-  SchedulesIndexRoute: SchedulesIndexRoute,
   TasksIndexRoute: TasksIndexRoute,
   WorkspacesIndexRoute: WorkspacesIndexRoute,
-  SchedulesIdEditRoute: SchedulesIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

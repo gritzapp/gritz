@@ -10,7 +10,16 @@ import { NewTaskSidebar } from '@/components/task-sidebar'
 import { Label } from '@/components/ui/label'
 import { TaskComposer } from '@/components/task-composer'
 
+// agent pre-selects an agent and pre-fills the first instruction with its
+// prompt, as the Agents list's run button does.
+type NewTaskSearch = { agent?: string }
+
 export const Route = createFileRoute('/tasks/new')({
+  // Another org's agent doesn't apply.
+  staticData: { orgSwitchRedirect: '/tasks/new' },
+  validateSearch: (search: Record<string, unknown>): NewTaskSearch => ({
+    agent: typeof search.agent === 'string' ? search.agent : undefined,
+  }),
   component: NewTaskPage,
 })
 
@@ -23,9 +32,20 @@ function NewTaskPage() {
   const [sidebarCollapsed, toggleSidebar] = useTaskSidebarCollapsed()
 
   const [name, setName] = useState('')
-  const [agentId, setAgentId] = useOrgLocalStorage('gritz-last-agent', '')
+  const search = Route.useSearch()
+  const [lastAgentId, setLastAgentId] = useOrgLocalStorage('gritz-last-agent', '')
+  // The agent from the URL wins over the remembered one until another is picked.
+  const [pickedAgentId, setPickedAgentId] = useState(search.agent)
+  const agentId = pickedAgentId ?? lastAgentId
+  const setAgentId = (id: string) => {
+    setPickedAgentId(undefined)
+    setLastAgentId(id)
+  }
   // The remembered agent may have been deleted since.
-  const agent = useAgent(/^\d+$/.test(agentId) ? BigInt(agentId) : 0n)
+  const agent = useAgent(agentIdBigInt(agentId))
+  // The URL's agent's prompt, once the agents have loaded. Picking another
+  // agent doesn't change it.
+  const urlAgent = useAgent(agentIdBigInt(search.agent ?? ''))
 
   const mutation = useMutation(createTask, {
     onSuccess: (data) => {
@@ -79,9 +99,14 @@ function NewTaskPage() {
             }
             pending={mutation.isPending}
             disabled={!agent}
+            initialInstruction={urlAgent?.prompt}
           />
         </div>
       </main>
     </div>
   )
+}
+
+function agentIdBigInt(id: string): bigint {
+  return /^\d+$/.test(id) ? BigInt(id) : 0n
 }
