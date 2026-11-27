@@ -22,19 +22,27 @@ func passthroughTx(_ context.Context, tx *sql.Tx, f func(tx *sql.Tx) error) erro
 
 // TestScheduler_Tick_FiresDueSchedule is the happy path: a due schedule claimed
 // in the tick creates one task of its agent (a created event attributed to
-// ScheduleActor, then the agent's prompt as its instruction, or a generated line
-// when the agent has none), advances next_run_at to the first occurrence after
+// ScheduleActor, then the agent's prompt and the schedule's as separate
+// instructions, each only when set), advances next_run_at to the first occurrence after
 // now (skip-only), and the change notification is published after the
 // transaction.
 func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name   string
-		prompt string
-		want   string
+		name           string
+		agentPrompt    string
+		schedulePrompt string
+		want           []string
 	}{
-		{"prompt", "Bump outdated dependencies.", "Bump outdated dependencies."},
-		{"no prompt", "", `You were created by schedule "nightly" of agent "deps".`},
+		{name: "neither"},
+		{name: "agent only", agentPrompt: "Bump outdated dependencies.", want: []string{"Bump outdated dependencies."}},
+		{name: "schedule only", schedulePrompt: "Start with Go modules.", want: []string{"Start with Go modules."}},
+		{
+			name:           "both",
+			agentPrompt:    "Bump outdated dependencies.",
+			schedulePrompt: "Start with Go modules.",
+			want:           []string{"Bump outdated dependencies.", "Start with Go modules."},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -54,6 +62,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 				Timezone:  "UTC",
 				Enabled:   true,
 				NextRunAt: &stale,
+				Prompt:    tt.schedulePrompt,
 			}
 			agent := &model.Agent{
 				ID:          3,
@@ -61,7 +70,7 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 				Name:        "deps",
 				Workspace:   "w",
 				Runner:      "r",
-				Prompt:      tt.prompt,
+				Prompt:      tt.agentPrompt,
 				AutoArchive: time.Hour,
 				Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
 				Features:    []string{"jira", "codex"},
@@ -119,9 +128,8 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 			})
 
 			// The created event first (ScheduleActor) and the start command, then one
-			// wake instruction event with the agent's prompt or the generated line, all
-			// against the assigned task id.
-			assert.DeepEqual(t, eventPayloads(st.CreateEventCalls()), []*model.Event{
+			// wake instruction event per prompt, all against the assigned task id.
+			want := []*model.Event{
 				{
 					TaskID: 42,
 					OrgID:  7,
@@ -141,13 +149,16 @@ func TestScheduler_Tick_FiresDueSchedule(t *testing.T) {
 						Workspace: "w",
 					},
 				},
-				{
+			}
+			for _, text := range tt.want {
+				want = append(want, &model.Event{
 					TaskID:  42,
 					OrgID:   7,
 					Wake:    true,
-					Payload: &model.InstructionPayload{Text: tt.want},
-				},
-			})
+					Payload: &model.InstructionPayload{Text: text},
+				})
+			}
+			assert.DeepEqual(t, eventPayloads(st.CreateEventCalls()), want)
 
 			// The schedule is advanced (not disabled): next_run_at realigns to the future
 			// and last_task_id points at the new task.

@@ -206,7 +206,8 @@ CREATE TABLE public.schedules (
     last_run_at timestamp without time zone,
     last_task_id bigint,
     agent_id bigint NOT NULL,
-    "position" integer DEFAULT 0 NOT NULL
+    "position" integer DEFAULT 0 NOT NULL,
+    prompt text DEFAULT ''::text NOT NULL
 );
 
 
@@ -899,4 +900,5 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20261130000001'),
     ('20261201000001'),
     ('20261202000001'),
-    ('20261203000001');
+    ('20261203000001'),
+    ('20261204000001');

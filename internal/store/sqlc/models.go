@@ -88,6 +88,7 @@ type Schedule struct {
 	LastTaskID sql.NullInt64 `json:"last_task_id"`
 	AgentID    int64         `json:"agent_id"`
 	Position   int32         `json:"position"`
+	Prompt     string        `json:"prompt"`
 }
 
 type SchemaMigration struct {

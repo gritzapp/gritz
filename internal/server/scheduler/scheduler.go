@@ -144,9 +144,9 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 
 // fire materializes one schedule occurrence inside tx: it creates a task of
 // the schedule's agent, named after the schedule, seeds its events
-// (Pending/Start, a created event attributed to model.ScheduleActor, and the
-// agent's prompt as its first instruction, or a generated line when the agent
-// has none), then advances the schedule to its next occurrence. The next fire
+// (Pending/Start, a created event attributed to model.ScheduleActor, then the
+// agent's prompt and the schedule's as separate instructions, each only when
+// set), then advances the schedule to its next occurrence. The next fire
 // is computed as the first occurrence strictly after now, never after the
 // stored next_run_at, so any occurrences missed while the scheduler was down
 // collapse into this single fire (skip-only, never backfill). It returns the
@@ -170,8 +170,7 @@ func (s *Scheduler) fire(ctx context.Context, tx *sql.Tx, sched *model.Schedule)
 	if err := s.store.CreateTask(ctx, tx, task); err != nil {
 		return model.Notification{}, err
 	}
-	generated := fmt.Sprintf("You were created by schedule %q of agent %q.", sched.Name, agent.Name)
-	for _, ev := range agent.Events(task, model.ScheduleActor, generated) {
+	for _, ev := range agent.Events(task, model.ScheduleActor, sched.Prompt) {
 		if err := s.store.CreateEvent(ctx, tx, ev); err != nil {
 			return model.Notification{}, err
 		}

@@ -39,7 +39,7 @@ func (h *handlers) addAgentTools(server *mcp.Server) {
 			"link, a link kind of this agent the created task subscribes to the event's resource with, and prompt, a second instruction the created task gets after the agent's prompt. The first matching trigger wins. " +
 			"links are the kinds of subscribed link its tasks may create: type (a link type from list_event_types, such as github.pr), kind (defaults to type, unique in the agent), " +
 			"claim stamped on its links, events [{type, conditions}] it delivers to the task (event types that declare the link type, each with conditions as a trigger's; with none it delivers nothing), and public. " +
-			"schedules [{id, name, cron_expr, timezone, enabled}] each create a task of the agent named name, starting with its prompt, whenever the 5-field cron expression matches in the IANA timezone (default UTC). " +
+			"schedules [{id, name, cron_expr, timezone, enabled, prompt}] each create a task of the agent named name, with prompt as a second instruction after the agent's prompt, whenever the 5-field cron expression matches in the IANA timezone (default UTC). " +
 			"Keep a schedule's id to keep its last run, leave it out to add one, and leave a schedule out to delete it; next_run_at, last_run_at and last_task_id are set by the server. " +
 			"Its tasks copy its variables and features when they are created, so replacing an agent doesn't change the tasks it already created. Returns the stored agent.",
 	}, h.putAgent)

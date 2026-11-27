@@ -42,7 +42,7 @@ func (q *Queries) AdvanceSchedule(ctx context.Context, arg AdvanceScheduleParams
 const claimDueSchedules = `-- name: ClaimDueSchedules :many
 SELECT id, org_id, name,
        cron_expr, timezone, enabled,
-       next_run_at, last_run_at, last_task_id, agent_id, position
+       next_run_at, last_run_at, last_task_id, agent_id, position, prompt
 FROM schedules
 WHERE enabled = TRUE
   AND next_run_at IS NOT NULL
@@ -78,6 +78,7 @@ func (q *Queries) ClaimDueSchedules(ctx context.Context, limit int32) ([]Schedul
 			&i.LastTaskID,
 			&i.AgentID,
 			&i.Position,
+			&i.Prompt,
 		); err != nil {
 			return nil, err
 		}
@@ -120,8 +121,8 @@ func (q *Queries) DisableSchedules(ctx context.Context, orgID int64) error {
 }
 
 const insertAgentSchedule = `-- name: InsertAgentSchedule :one
-INSERT INTO schedules (org_id, name, agent_id, position, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+INSERT INTO schedules (org_id, name, agent_id, position, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, prompt)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 RETURNING id
 `
 
@@ -136,6 +137,7 @@ type InsertAgentScheduleParams struct {
 	NextRunAt  sql.NullTime  `json:"next_run_at"`
 	LastRunAt  sql.NullTime  `json:"last_run_at"`
 	LastTaskID sql.NullInt64 `json:"last_task_id"`
+	Prompt     string        `json:"prompt"`
 }
 
 func (q *Queries) InsertAgentSchedule(ctx context.Context, arg InsertAgentScheduleParams) (int64, error) {
@@ -150,6 +152,7 @@ func (q *Queries) InsertAgentSchedule(ctx context.Context, arg InsertAgentSchedu
 		arg.NextRunAt,
 		arg.LastRunAt,
 		arg.LastTaskID,
+		arg.Prompt,
 	)
 	var id int64
 	err := row.Scan(&id)
@@ -157,7 +160,7 @@ func (q *Queries) InsertAgentSchedule(ctx context.Context, arg InsertAgentSchedu
 }
 
 const listAgentSchedules = `-- name: ListAgentSchedules :many
-SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position, prompt
 FROM schedules
 WHERE org_id = $1 AND agent_id = $2
 ORDER BY position, id
@@ -189,6 +192,7 @@ func (q *Queries) ListAgentSchedules(ctx context.Context, arg ListAgentSchedules
 			&i.LastTaskID,
 			&i.AgentID,
 			&i.Position,
+			&i.Prompt,
 		); err != nil {
 			return nil, err
 		}
@@ -204,7 +208,7 @@ func (q *Queries) ListAgentSchedules(ctx context.Context, arg ListAgentSchedules
 }
 
 const listOrgAgentSchedules = `-- name: ListOrgAgentSchedules :many
-SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position, prompt
 FROM schedules
 WHERE org_id = $1
 ORDER BY agent_id, position, id
@@ -231,6 +235,7 @@ func (q *Queries) ListOrgAgentSchedules(ctx context.Context, orgID int64) ([]Sch
 			&i.LastTaskID,
 			&i.AgentID,
 			&i.Position,
+			&i.Prompt,
 		); err != nil {
 			return nil, err
 		}
@@ -246,7 +251,7 @@ func (q *Queries) ListOrgAgentSchedules(ctx context.Context, orgID int64) ([]Sch
 }
 
 const lockAgentSchedules = `-- name: LockAgentSchedules :many
-SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position
+SELECT id, org_id, name, cron_expr, timezone, enabled, next_run_at, last_run_at, last_task_id, agent_id, position, prompt
 FROM schedules
 WHERE org_id = $1 AND agent_id = $2
 FOR UPDATE
@@ -280,6 +285,7 @@ func (q *Queries) LockAgentSchedules(ctx context.Context, arg LockAgentSchedules
 			&i.LastTaskID,
 			&i.AgentID,
 			&i.Position,
+			&i.Prompt,
 		); err != nil {
 			return nil, err
 		}
@@ -296,9 +302,9 @@ func (q *Queries) LockAgentSchedules(ctx context.Context, arg LockAgentSchedules
 
 const updateAgentSchedule = `-- name: UpdateAgentSchedule :execrows
 UPDATE schedules
-SET name = $1, position = $2, cron_expr = $3, timezone = $4, enabled = $5,
-    next_run_at = $6, last_run_at = $7, last_task_id = $8
-WHERE id = $9 AND agent_id = $10 AND org_id = $11
+SET name = $1, position = $2, cron_expr = $3, timezone = $4, enabled = $5, prompt = $6,
+    next_run_at = $7, last_run_at = $8, last_task_id = $9
+WHERE id = $10 AND agent_id = $11 AND org_id = $12
 `
 
 type UpdateAgentScheduleParams struct {
@@ -307,6 +313,7 @@ type UpdateAgentScheduleParams struct {
 	CronExpr   string        `json:"cron_expr"`
 	Timezone   string        `json:"timezone"`
 	Enabled    bool          `json:"enabled"`
+	Prompt     string        `json:"prompt"`
 	NextRunAt  sql.NullTime  `json:"next_run_at"`
 	LastRunAt  sql.NullTime  `json:"last_run_at"`
 	LastTaskID sql.NullInt64 `json:"last_task_id"`
@@ -324,6 +331,7 @@ func (q *Queries) UpdateAgentSchedule(ctx context.Context, arg UpdateAgentSchedu
 		arg.CronExpr,
 		arg.Timezone,
 		arg.Enabled,
+		arg.Prompt,
 		arg.NextRunAt,
 		arg.LastRunAt,
 		arg.LastTaskID,

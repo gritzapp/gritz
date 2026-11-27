@@ -22,7 +22,8 @@ var cronParser = cron.NewParser(
 
 // Schedule names an agent and a cron spec. A server-side scheduler worker
 // creates a task of the agent on each occurrence, starting with the agent's
-// prompt (see docs/src/content/docs/proposals/implemented/agent-schedules.md).
+// prompt and then its own (see
+// docs/src/content/docs/proposals/implemented/agent-schedules.md).
 type Schedule struct {
 	ID    int64  `json:"id"`
 	OrgID int64  `json:"org_id"`
@@ -36,6 +37,10 @@ type Schedule struct {
 	CronExpr string `json:"cron_expr"`
 	Timezone string `json:"timezone"`
 	Enabled  bool   `json:"enabled"`
+
+	// Prompt is static text each task gets as an instruction after the
+	// agent's prompt. Empty adds none.
+	Prompt string `json:"prompt,omitempty"`
 
 	// Scheduler bookkeeping.
 	NextRunAt  *time.Time `json:"next_run_at,omitempty"` // UTC; nil when disabled/paused
@@ -113,6 +118,7 @@ func (s *Schedule) AgentProto() *gritzv1.AgentSchedule {
 		CronExpr: s.CronExpr,
 		Timezone: s.Timezone,
 		Enabled:  s.Enabled,
+		Prompt:   s.Prompt,
 	}
 	if s.NextRunAt != nil {
 		pb.NextRunAt = timestamppb.New(*s.NextRunAt)
