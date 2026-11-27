@@ -4,6 +4,7 @@ import type { Agent, AgentSchedule, EventTypeDef, LinkTypeDef } from '@/gen/grit
 import { AtlassianIcon } from '@/components/atlassian-icon'
 import { DeleteAgentDialog } from '@/components/delete-agent-dialog'
 import { GithubIcon } from '@/components/github-icon'
+import { Overflow } from '@/components/overflow'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useOrgId } from '@/hooks/use-org-id'
-import { linkKindName, OP_LABELS, type ConditionOp } from '@/lib/agents'
+import { OP_LABELS, type ConditionOp } from '@/lib/agents'
 import { findEventType } from '@/lib/event-types'
 import { describeCron, nextRunLabel } from '@/lib/schedule'
 import { cn } from '@/lib/utils'
@@ -306,18 +307,40 @@ export function ScheduleItem({ schedule }: { schedule: AgentSchedule }) {
 }
 
 // Starters lists everything that creates the agent's tasks: its triggers, then
-// its schedules. An agent with neither only runs when someone starts it.
+// its schedules. An agent with neither only runs when someone starts it. With
+// max, it shows that many and the rest on hover, each with its detail.
 export function Starters({
   agent,
   eventTypes,
   detail = false,
+  max,
 }: {
   agent: Agent
   eventTypes: EventTypeDef[]
   detail?: boolean
+  max?: number
 }) {
   if (agent.triggers.length === 0 && agent.schedules.length === 0) {
     return <span className="text-muted-foreground/70 text-sm">Manual only</span>
+  }
+  if (max !== undefined) {
+    return (
+      <Overflow
+        layout="column"
+        max={max}
+        items={[
+          ...agent.triggers.map((t, i) => ({
+            key: `trigger-${i}`,
+            node: <TriggerItem trigger={t} eventTypes={eventTypes} />,
+            full: <TriggerItem trigger={t} eventTypes={eventTypes} detail />,
+          })),
+          ...agent.schedules.map((s) => ({
+            key: `schedule-${String(s.id)}`,
+            node: <ScheduleItem schedule={s} />,
+          })),
+        ]}
+      />
+    )
   }
   return (
     <div className={detail ? 'space-y-3' : 'space-y-2'}>
@@ -332,30 +355,21 @@ export function Starters({
 }
 
 // LinkKindChip is a link kind as a pill: what it follows and the claim it
-// holds. Its tooltip lists the events it delivers.
+// holds.
 export function LinkKindChip({
   link,
-  eventTypes,
   linkTypes,
 }: {
   link: LinkKindView
-  eventTypes: EventTypeDef[]
   linkTypes: LinkTypeDef[]
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger className="inline-flex cursor-default items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-2 text-xs">
-        <LinkTypeIcon type={link.type} className="size-3.5" />
-        <span>{linkKindLabel(link, linkTypes)}</span>
-        {link.claim && <span className="text-muted-foreground">as {link.claim}</span>}
-        {link.events.length === 0 && <span className="text-muted-foreground">(silent)</span>}
-      </TooltipTrigger>
-      <TooltipContent className="space-y-1">
-        <div className="font-mono">{linkKindName(link)}</div>
-        <div>{linkEventsText(link, eventTypes, linkTypes)}</div>
-        {link.public && <div>Also delivers events from people outside the org</div>}
-      </TooltipContent>
-    </Tooltip>
+    <span className="inline-flex items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-2 text-xs whitespace-nowrap">
+      <LinkTypeIcon type={link.type} className="size-3.5" />
+      <span>{linkKindLabel(link, linkTypes)}</span>
+      {link.claim && <span className="text-muted-foreground">as {link.claim}</span>}
+      {link.events.length === 0 && <span className="text-muted-foreground">(silent)</span>}
+    </span>
   )
 }
 
