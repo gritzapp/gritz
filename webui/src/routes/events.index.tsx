@@ -29,7 +29,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RelativeTime } from '@/components/relative-time'
 import { useSetCustomEventTypes } from '@/lib/custom-event-types'
-import { CustomEventSchemaDialog } from '@/components/custom-event-schema-dialog'
 import {
   Braces,
   Ellipsis,
@@ -282,7 +281,6 @@ function CustomSchemasTab() {
                 </TableCell>
                 <TableCell className="py-2.5 pr-3">
                   <div className="flex items-center justify-end gap-1">
-                    <CustomEventSchemaDialog eventType={eventType} />
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button

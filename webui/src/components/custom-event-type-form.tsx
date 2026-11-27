@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { CustomEventSchemaDialog } from '@/components/custom-event-schema-dialog'
 import { FieldLabel, SaveBar, SectionHeading } from '@/components/form-layout'
 import { useOrgId } from '@/hooks/use-org-id'
 import { ChevronLeft, Lock, Plus, Trash2 } from 'lucide-react'
@@ -13,6 +14,7 @@ import {
   emptyAttr,
   type AttrDraft,
   type CustomEventTypeFormValues,
+  buildEventTypeDef,
 } from '@/lib/custom-event-types'
 
 // Keys for the attribute cards, so removing one doesn't shift focus onto its
@@ -96,6 +98,12 @@ export function CustomEventTypeForm({
                   {CUSTOM_SOURCE}/{values.type.trim()}
                 </Badge>
               )}
+              <div className="ml-auto">
+                {/* The schema of the draft as it stands, once it would save. */}
+                <CustomEventSchemaDialog
+                  eventType={invalid ? undefined : buildEventTypeDef(values)}
+                />
+              </div>
             </div>
           </header>
 
