@@ -452,13 +452,20 @@ func TestRunSchedule_AgentTemplate(t *testing.T) {
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id", "auto_archive", "variables"),
 	)
-	var instructions []string
-	for _, e := range h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id}) {
-		if inst := e.GetInstruction(); inst != nil {
-			instructions = append(instructions, inst.Text)
-		}
-	}
-	assert.DeepEqual(t, instructions, []string{"groom the backlog"})
+	// The created and start command events carry no instruction; the only
+	// instruction is the schedule's.
+	assert.DeepEqual(t,
+		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: resp.Task.Id}),
+		[]*gritzv1.Event{
+			{},
+			{},
+			{Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: "groom the backlog",
+			}}},
+		},
+		protocmp.Transform(),
+		cmpx.OnlyProtoFields(&gritzv1.Event{}, "instruction"),
+	)
 }
 
 // A manual run fires the schedule as a one-off: it creates exactly one task of
