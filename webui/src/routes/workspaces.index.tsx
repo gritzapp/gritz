@@ -108,6 +108,7 @@ function WorkspacesPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Description</TableHead>
+              <TableHead>Features</TableHead>
               <TableHead>Runner</TableHead>
               <TableHead>Last Updated</TableHead>
             </TableRow>
@@ -118,6 +119,11 @@ function WorkspacesPage() {
                 <TableCell className="font-medium">{workspace.name}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {workspace.description || '-'}
+                </TableCell>
+                <TableCell className="text-muted-foreground">
+                  {workspace.features.length === 0
+                    ? '-'
+                    : `${workspace.features.length} ${workspace.features.length === 1 ? 'feature' : 'features'}`}
                 </TableCell>
                 <TableCell className="text-muted-foreground font-mono text-sm">
                   {workspace.runnerId || '-'}

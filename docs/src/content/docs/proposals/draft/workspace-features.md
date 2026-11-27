@@ -423,17 +423,16 @@ one of the agent's features is no longer declared by its workspace.
 - **Web UI agent editor** (`agent-form.tsx`): a Features section below the
   variables.
   - It lists the features of the chosen workspace, from `ListWorkspaces`, with
-    their descriptions, each as a checkbox.
-  - The order is the order they are checked in: checking a feature appends it
-    to the list. A checked feature shows its position. To move one to the end,
-    uncheck and check it again.
+    their descriptions, each with a switch.
+  - The order is the order they are turned on in: turning a feature on appends
+    it to the list. A feature that is on shows its position. To move one to the
+    end, turn it off and on again.
   - Changing the runner or workspace clears the selection, as it clears the
     variables.
   - A saved feature the workspace no longer declares is shown as such, so it can
-    be unchecked. The server rejects the save until it is.
-- **Web UI views**: the workspaces page lists each workspace's features and
-  their descriptions. The task sidebar shows the task's features, in order, next
-  to its variables.
+    be turned off. The server rejects the save until it is.
+- **Web UI workspaces page**: shows how many features each workspace declares.
+  The task view doesn't show a task's features.
 
 ### API
 
@@ -523,7 +522,7 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
 - `TaskManager.specs` calls `Workspace.WithFeatures` and builds the run from the
   workspace it returns, as from any other.
 - The agent editor reads `ListWorkspaces` for the chosen workspace's features
-  and saves `Agent.features` in the order they were checked.
+  and saves `Agent.features` in the order they were turned on.
 
 ## Implementation Plan
 
@@ -570,12 +569,12 @@ func (s *Store) GetWorkspace(ctx context.Context, tx *sql.Tx, runnerID, name str
 6. **CLI and MCP** — Delivers: features in `gritz task` output and in the server
    MCP tool descriptions and results, including `put_agent`'s `features`.
    Depends on: (5). Verifiable by: running them against the dev stack.
-7. **Web UI** — Delivers: the Features section of the agent editor (a checkbox
-   per feature, ordered by when it was checked, cleared on workspace change,
-   undeclared saved features flagged). Also features on the workspaces page and
-   the task sidebar. Depends on: (4) for the editor, (5) for the sidebar.
-   Verifiable by: creating and editing an agent with features against the dev
-   stack and seeing a created task show them in order; `pnpm lint`.
+7. **Web UI** — Delivers: the Features section of the agent editor (a switch
+   per feature, ordered by when it was turned on, cleared on workspace change,
+   undeclared saved features flagged), and a count of each workspace's
+   features on the workspaces page. Depends on: (4). Verifiable by: creating
+   and editing an agent with features against the dev stack and seeing a
+   created task get them in order; `pnpm lint`.
 8. **Docs** — Delivers:
    - a `features` section in `operators/workspaces-yaml`, covering the agent-config
      replacement, the merge order, the command order and the environment list;

@@ -27,11 +27,7 @@ function AgentPage() {
 
   const handleSubmit = async (values: AgentFormValues) => {
     if (!agent) return
-    // The form doesn't edit features yet: send the loaded ones back, or the
-    // save would drop them.
-    const built = buildAgent(values, agent.id)
-    built.features = agent.features
-    await mutation.mutateAsync({ agent: built })
+    await mutation.mutateAsync({ agent: buildAgent(values, agent.id) })
     await invalidateAgents()
     setRevision((r) => r + 1)
   }
