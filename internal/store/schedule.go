@@ -62,6 +62,7 @@ func toModelSchedule(row sqlc.Schedule) *model.Schedule {
 		CronExpr:   row.CronExpr,
 		Timezone:   row.Timezone,
 		Enabled:    row.Enabled,
+		Prompt:     row.Prompt,
 		NextRunAt:  timePtr(row.NextRunAt),
 		LastRunAt:  timePtr(row.LastRunAt),
 		LastTaskID: int64Ptr(row.LastTaskID),

@@ -1011,6 +1011,9 @@ message AgentSchedule {
   google.protobuf.Timestamp next_run_at = 6;  // Unset when disabled.
   google.protobuf.Timestamp last_run_at = 7;  // Unset when it has never run.
   int64 last_task_id = 8;                     // 0 when it has never run.
+  // Static text every task it creates gets as an instruction after the
+  // agent's prompt. Empty adds none.
+  string prompt = 9;
 }
 
 // AgentTrigger creates a task of its agent when an event matches it.

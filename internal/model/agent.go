@@ -67,10 +67,10 @@ func (a *Agent) Task(name string) *Task {
 
 // Events returns the events seeding task, a task Task built and the caller
 // inserted: a created lifecycle event attributed to actor, the task's start
-// command event, then one wake-carrying instruction with the agent's prompt, or
-// generated when the agent has none. The created event goes first, so the
-// timeline ordered by event id shows "Created" first.
-func (a *Agent) Events(task *Task, actor Actor, generated string) []*Event {
+// command event, then a wake-carrying instruction with the agent's prompt and
+// another with prompt, each only when set. The created event goes first, so
+// the timeline ordered by event id shows "Created" first.
+func (a *Agent) Events(task *Task, actor Actor, prompt string) []*Event {
 	events := []*Event{{
 		TaskID: task.ID,
 		OrgID:  task.OrgID,
@@ -83,12 +83,17 @@ func (a *Agent) Events(task *Task, actor Actor, generated string) []*Event {
 	if ev, ok := task.CommandEvent(nil); ok {
 		events = append(events, ev)
 	}
-	return append(events, &Event{
-		TaskID:  task.ID,
-		OrgID:   task.OrgID,
-		Wake:    true,
-		Payload: &InstructionPayload{Text: cmp.Or(a.Prompt, generated)},
-	})
+	for _, text := range []string{a.Prompt, prompt} {
+		if text != "" {
+			events = append(events, &Event{
+				TaskID:  task.ID,
+				OrgID:   task.OrgID,
+				Wake:    true,
+				Payload: &InstructionPayload{Text: text},
+			})
+		}
+	}
+	return events
 }
 
 // AgentTrigger creates a task of its agent when a matching event arrives. Source
@@ -245,6 +250,7 @@ func AgentFromProto(orgID int64, pb *gritzv1.Agent) *Agent {
 			CronExpr: sched.GetCronExpr(),
 			Timezone: cmp.Or(sched.GetTimezone(), "UTC"),
 			Enabled:  sched.GetEnabled(),
+			Prompt:   sched.GetPrompt(),
 		})
 	}
 	return a

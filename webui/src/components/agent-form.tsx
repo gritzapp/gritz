@@ -1074,6 +1074,12 @@ function ScheduleEditor({
             )}
             <span>{schedule.timezone || 'UTC'}</span>
             {!schedule.enabled && <Badge variant="outline">Disabled</Badge>}
+            {schedule.prompt && (
+              <Badge variant="outline" className="font-normal">
+                <MessageSquare />
+                Prompt
+              </Badge>
+            )}
           </div>
         </>
       }
@@ -1169,6 +1175,22 @@ function ScheduleEditor({
             Cron fields are interpreted in this IANA timezone, correct across DST.
           </p>
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <FieldLabel
+          htmlFor={`${id}-prompt`}
+          hint="An instruction every task it creates gets after the agent's prompt. Leave it empty to start with the agent's prompt alone."
+        >
+          Prompt
+        </FieldLabel>
+        <Textarea
+          id={`${id}-prompt`}
+          className="min-h-24 font-mono leading-relaxed md:text-[13px]"
+          placeholder="Bump the Go modules first."
+          value={schedule.prompt}
+          onChange={(e) => onChange({ ...schedule, prompt: e.target.value })}
+        />
       </div>
     </RuleCard>
   )

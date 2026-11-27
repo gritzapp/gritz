@@ -1,7 +1,6 @@
 package api_test
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -69,8 +68,8 @@ func TestAgentSchedule_Enable(t *testing.T) {
 }
 
 // A fire creates one task of the schedule's agent, named after the schedule,
-// with the created event attributed to the schedule and a generated
-// instruction for an agent without a prompt, and records the run on the
+// with the created event attributed to the schedule and no instruction when
+// neither the agent nor the schedule has a prompt, and records the run on the
 // schedule.
 func TestAgentSchedule_Fire(t *testing.T) {
 	t.Parallel()
@@ -103,9 +102,8 @@ func TestAgentSchedule_Fire(t *testing.T) {
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id"),
 	)
-	// The created event first (the schedule), the start command, then the
-	// generated wake instruction. The server-assigned id, task_id and
-	// created_at are ignored.
+	// The created event first (the schedule), then the start command. The
+	// server-assigned id, task_id and created_at are ignored.
 	assert.DeepEqual(t,
 		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.Id}),
 		[]*gritzv1.Event{
@@ -120,12 +118,6 @@ func TestAgentSchedule_Fire(t *testing.T) {
 				Runner:    harness.DefaultRunner,
 				Workspace: harness.DefaultWorkspace,
 			}}},
-			{
-				Wake: true,
-				Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
-					Text: fmt.Sprintf("You were created by schedule %q of agent %q.", "nightly", "deps"),
-				}},
-			},
 		},
 		protocmp.Transform(),
 		protocmp.IgnoreFields(&gritzv1.Event{}, "id", "task_id", "created_at"),
@@ -138,7 +130,8 @@ func TestAgentSchedule_Fire(t *testing.T) {
 }
 
 // A fire creates a task of the schedule's agent as it is when it fires: its
-// workspace, runner, auto-archive, variables and prompt.
+// workspace, runner, auto-archive, variables and prompt, followed by the
+// schedule's prompt.
 func TestAgentSchedule_FireAgentTemplate(t *testing.T) {
 	t.Parallel()
 	// Arrange
@@ -160,7 +153,7 @@ func TestAgentSchedule_FireAgentTemplate(t *testing.T) {
 		Prompt:      "Groom the backlog.",
 		AutoArchive: durationpb.New(time.Hour),
 		Variables:   map[string]string{"JIRA_ISSUE": "APP-142"},
-		Schedules:   []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "@daily", Enabled: true}},
+		Schedules:   []*gritzv1.AgentSchedule{{Name: "nightly", CronExpr: "@daily", Enabled: true, Prompt: "Start with the oldest epic."}},
 	}})
 	agent.Variables = map[string]string{"JIRA_ISSUE": "APP-143"}
 	agent.Prompt = "Groom the backlog, oldest first."
@@ -188,8 +181,8 @@ func TestAgentSchedule_FireAgentTemplate(t *testing.T) {
 		protocmp.Transform(),
 		cmpx.OnlyProtoFields(&gritzv1.Task{}, "id", "name", "workspace", "runner", "agent_id", "auto_archive", "variables"),
 	)
-	// The created and start command events carry no instruction; the only
-	// instruction is the agent's prompt.
+	// The created and start command events carry no instruction; the agent's
+	// prompt and then the schedule's are separate instructions.
 	assert.DeepEqual(t,
 		h.Org.ListEventsByTask(&gritzv1.ListEventsByTaskRequest{TaskId: task.Id}),
 		[]*gritzv1.Event{
@@ -197,6 +190,9 @@ func TestAgentSchedule_FireAgentTemplate(t *testing.T) {
 			{},
 			{Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
 				Text: "Groom the backlog, oldest first.",
+			}}},
+			{Payload: &gritzv1.Event_Instruction{Instruction: &gritzv1.InstructionPayload{
+				Text: "Start with the oldest epic.",
 			}}},
 		},
 		protocmp.Transform(),

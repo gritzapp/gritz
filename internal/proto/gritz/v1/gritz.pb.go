@@ -7393,9 +7393,12 @@ type AgentSchedule struct {
 	// Output only; CreateAgent and UpdateAgent ignore them. Saving an agent
 	// only moves next_run_at when the schedule's cron_expr, timezone or
 	// enabled changed.
-	NextRunAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=next_run_at,json=nextRunAt,proto3" json:"next_run_at,omitempty"`     // Unset when disabled.
-	LastRunAt     *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_run_at,json=lastRunAt,proto3" json:"last_run_at,omitempty"`     // Unset when it has never run.
-	LastTaskId    int64                  `protobuf:"varint,8,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"` // 0 when it has never run.
+	NextRunAt  *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=next_run_at,json=nextRunAt,proto3" json:"next_run_at,omitempty"`     // Unset when disabled.
+	LastRunAt  *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=last_run_at,json=lastRunAt,proto3" json:"last_run_at,omitempty"`     // Unset when it has never run.
+	LastTaskId int64                  `protobuf:"varint,8,opt,name=last_task_id,json=lastTaskId,proto3" json:"last_task_id,omitempty"` // 0 when it has never run.
+	// Static text every task it creates gets as an instruction after the
+	// agent's prompt. Empty adds none.
+	Prompt        string `protobuf:"bytes,9,opt,name=prompt,proto3" json:"prompt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -7484,6 +7487,13 @@ func (x *AgentSchedule) GetLastTaskId() int64 {
 		return x.LastTaskId
 	}
 	return 0
+}
+
+func (x *AgentSchedule) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
 }
 
 // AgentTrigger creates a task of its agent when an event matches it.
@@ -8636,7 +8646,7 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\tschedules\x18\v \x03(\v2\x17.gritz.v1.AgentScheduleR\tschedules\x1a<\n" +
 	"\x0eVariablesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb8\x02\n" +
 	"\rAgentSchedule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
@@ -8646,7 +8656,8 @@ const file_gritz_v1_gritz_proto_rawDesc = "" +
 	"\vnext_run_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tnextRunAt\x12:\n" +
 	"\vlast_run_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tlastRunAt\x12 \n" +
 	"\flast_task_id\x18\b \x01(\x03R\n" +
-	"lastTaskId\"\xd2\x01\n" +
+	"lastTaskId\x12\x16\n" +
+	"\x06prompt\x18\t \x01(\tR\x06prompt\"\xd2\x01\n" +
 	"\fAgentTrigger\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x127\n" +

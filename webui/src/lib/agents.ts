@@ -64,6 +64,8 @@ export interface ScheduleDraft {
   cronExpr: string
   timezone: string
   enabled: boolean
+  // An instruction after the agent's prompt, or '' for none.
+  prompt: string
 }
 
 // AgentFormValues is the agent editor's draft. autoArchive is the auto-archive
@@ -111,7 +113,14 @@ export const emptyTrigger: TriggerDraft = {
 // emptySchedule is a new schedule: a daily cron in the viewer's timezone,
 // enabled, since a schedule is added to run.
 export function emptySchedule(): ScheduleDraft {
-  return { id: '', name: '', cronExpr: DEFAULT_CRON, timezone: browserTimezone(), enabled: true }
+  return {
+    id: '',
+    name: '',
+    cronExpr: DEFAULT_CRON,
+    timezone: browserTimezone(),
+    enabled: true,
+    prompt: '',
+  }
 }
 
 export const emptyLinkKind: LinkKindDraft = {
@@ -146,6 +155,7 @@ export function agentFormValues(agent: Agent): AgentFormValues {
       cronExpr: s.cronExpr,
       timezone: s.timezone,
       enabled: s.enabled,
+      prompt: s.prompt,
     })),
     links: agent.links.map((l) => ({
       type: l.type,
@@ -187,6 +197,7 @@ export function buildAgent(values: AgentFormValues, id: bigint): Agent {
       cronExpr: s.cronExpr.trim(),
       timezone: s.timezone,
       enabled: s.enabled,
+      prompt: s.prompt,
     })),
     links: values.links.map((l) => ({
       type: l.type,

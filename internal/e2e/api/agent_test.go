@@ -572,7 +572,7 @@ func TestAgentSchedules(t *testing.T) {
 		Workspace: harness.DefaultWorkspace,
 		Runner:    harness.DefaultRunner,
 		Schedules: []*gritzv1.AgentSchedule{
-			{Id: 4242, Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, LastTaskId: 7},
+			{Id: 4242, Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, LastTaskId: 7, Prompt: "Bump outdated dependencies."},
 			{Name: "Weekend bump", CronExpr: "0 9 * * 6"},
 		},
 	}
@@ -590,7 +590,7 @@ func TestAgentSchedules(t *testing.T) {
 	assert.DeepEqual(t,
 		got,
 		[]*gritzv1.AgentSchedule{
-			{Id: got[0].Id, Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: got[0].NextRunAt},
+			{Id: got[0].Id, Name: "Nightly bump", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: got[0].NextRunAt, Prompt: "Bump outdated dependencies."},
 			{Id: got[1].Id, Name: "Weekend bump", CronExpr: "0 9 * * 6", Timezone: "UTC"},
 		},
 		protocmp.Transform(),

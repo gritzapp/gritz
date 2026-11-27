@@ -364,7 +364,7 @@ func TestAgentSchedules_CreateGetList(t *testing.T) {
 		Workspace: "w",
 		Runner:    "r",
 		Schedules: []*model.Schedule{
-			{Name: "nightly", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: &next, LastRunAt: &last, LastTaskID: &task.ID},
+			{Name: "nightly", CronExpr: "0 3 * * *", Timezone: "Europe/Paris", Enabled: true, NextRunAt: &next, LastRunAt: &last, LastTaskID: &task.ID, Prompt: "Bump outdated dependencies."},
 			{Name: "weekend", CronExpr: "0 9 * * 6", Timezone: "UTC"},
 		},
 	}
@@ -401,8 +401,10 @@ func TestUpdateAgent_Schedules(t *testing.T) {
 	}})
 	a, b, c := agent.Schedules[0], agent.Schedules[1], agent.Schedules[2]
 
-	// Act - c renamed and moved first, a new d, a last, and b left out.
+	// Act - c renamed, given a prompt and moved first, a new d, a last, and b
+	// left out.
 	c.Name = "c2"
+	c.Prompt = "Start with Go modules."
 	d := &model.Schedule{Name: "d", CronExpr: "@hourly", Timezone: "UTC"}
 	agent.Schedules = []*model.Schedule{c, d, a}
 	err := s.WithTx(ctx, nil, func(tx *sql.Tx) error {
