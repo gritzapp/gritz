@@ -89,14 +89,16 @@ gritz turns these GitHub webhook deliveries into events. The trigger form's
 
 | GitHub delivery | Event type | Its URL |
 | --- | --- | --- |
-| A comment on an issue or pull request is created or edited | GitHub: Issue/PR Comment | the comment |
+| A comment on an issue is created or edited | GitHub: Issue Comment | the comment |
+| A comment on a pull request's conversation is created or edited | GitHub: PR Comment | the comment |
 | An inline review comment on a pull request is created or edited | GitHub: PR Review Comment | the review comment |
 | A pull request review is submitted with a summary | GitHub: PR Review | the review |
 | An issue is assigned | GitHub: Issue Assigned | the issue |
 | A pull request is assigned | GitHub: PR Assigned | the pull request |
 | A pull request is opened | GitHub: PR Opened | the pull request |
 | A pull request is closed or merged | GitHub: PR Closed | the pull request |
-| A label is added to an issue or pull request | GitHub: Label Added | the issue or pull request |
+| A label is added to an issue | GitHub: Issue Label Added | the issue |
+| A label is added to a pull request | GitHub: PR Label Added | the pull request |
 | Commits are pushed to a branch | GitHub: Push | the newest commit |
 | A check run completes | GitHub: Check Run Completed | the check run; for GitHub Actions, the job |
 | A check run of an open pull request completes | GitHub: PR Check Run Completed | the pull request |
@@ -177,16 +179,15 @@ Wake the task that opened a pull request whenever a member comments on it or
 reviews it. Give the agent a link kind:
 
 - **Link type**: GitHub: Pull Request
-- **Events**: GitHub: Issue/PR Comment, GitHub: PR Review, GitHub: PR Review
-  Comment
+- **Events**: GitHub: PR Comment, GitHub: PR Review, GitHub: PR Review Comment
 
 The agent links the pull requests its tasks open with that kind, `github.pr`.
 
 Start a task for every issue a member labels `gritz`, in one repository, and
 keep it up to date with the issue's comments:
 
-- **Link kind**: link type GitHub: Issue, events GitHub: Issue/PR Comment.
-- **Trigger**: event type GitHub: Label Added, conditions `label equals gritz`
+- **Link kind**: link type GitHub: Issue, events GitHub: Issue Comment.
+- **Trigger**: event type GitHub: Issue Label Added, conditions `label equals gritz`
   and `url prefix https://github.com/example/app/issues/`, link `github.issue`.
 - **Prompt**: "Fix the issue and open a pull request."
 
