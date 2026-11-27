@@ -39,7 +39,7 @@ func (h *handlers) addEventTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_event_types",
-		Description: "List the event types agent triggers can match, built-in and custom, with the attributes a trigger can have conditions on",
+		Description: "List the event types agent triggers can match, built-in and custom, with the attributes a trigger can have conditions on and the link types each declares, and the link types agent link kinds can name",
 		Annotations: &mcp.ToolAnnotations{
 			ReadOnlyHint: true,
 		},

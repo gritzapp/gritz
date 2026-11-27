@@ -20,6 +20,7 @@ func main() {
 			command.ServerCommand,
 			command.RunnerCommand,
 			command.TaskCommand,
+			command.AgentCommand,
 			command.ContainersCommand,
 			command.WorkspacesCommand,
 			command.ShellCommand,
