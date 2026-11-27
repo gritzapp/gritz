@@ -16,9 +16,11 @@ that only grants access to that task (see
 On a task's first run, before your instructions, gritz tells the agent to:
 
 - name the task with `update_my_task` if it has no name;
-- create a link with `subscribe=true` for each resource it creates, such as a
-  pull request, an issue or a comment, so replies reach the task even after it
-  finishes, and `subscribe=false` for reference links it didn't create;
+- create a link with the fitting link kind of the task's agent for each
+  resource it creates, such as a pull request, an issue or a comment, so replies
+  reach the task even after it finishes, and with no kind for reference links
+  it didn't create. gritz lists the agent's link kinds, each with its link type
+  and claim, or says the agent has none;
 - prefer URLs a person can open over API URLs;
 - use `report` for anything you should see, since its text replies aren't shown;
 - answer questions or problems on the platform the latest instruction or event
@@ -52,11 +54,11 @@ in its sidebar.
 | `url` | The resource's URL. |
 | `relevance` | How the resource relates to the task, such as "PR implementing the fix". |
 | `title` | Optional. A title to show for the link. |
-| `subscribe` | Optional. `true` to have events about the resource delivered to the task. |
+| `kind` | Optional. A link kind of the task's agent, such as `owned-pr`. The link then receives the events that kind lists. Omit it for a plain reference link, which receives no events. |
 
-A subscribed link is how a task hears about review comments on its pull request,
-or replies on its Jira issue. Which events wake it is up to the organisation's
-[routing rules](/concepts/routing-rules/). See
+A link with a kind is how a task hears about review comments on its pull request,
+or replies on its Jira issue. Which events reach it is up to the kind, as
+defined on the task's agent. See
 [Events and links](/concepts/events-and-links/).
 
 ### `report`
@@ -84,10 +86,10 @@ when you want something specific:
 - **To get a summary where you'll see it**: "When you're done, report a summary
   of the changes and anything you couldn't do."
 - **To keep a task listening**: "Open a draft pull request and link it with
-  subscribe=true." The task finishes, and a review comment on the pull request
-  wakes it if a routing rule matches.
-- **To link context you gave it**: "Link the incident page as a reference, not
-  subscribed."
+  the `owned-pr` kind." The task finishes, and a review comment on the pull
+  request wakes it if the kind lists that event.
+- **To link context you gave it**: "Link the incident page as a reference, with
+  no kind."
 - **To name it predictably**: "Name this task `deps: bump <package>`."
 
 The agent's other tools, such as for GitHub or Jira, come from the MCP servers
