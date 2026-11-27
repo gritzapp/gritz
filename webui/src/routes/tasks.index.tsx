@@ -34,6 +34,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { RelativeTime } from '@/components/relative-time'
 import { CommandBadge } from '@/components/command-badge'
+import { AgentRef } from '@/components/agent-select'
 import { Plus } from 'lucide-react'
 import { useOrgId } from '@/hooks/use-org-id'
 import { useOrgLocalStorage, useOrgLocalStorageBoolean } from '@/hooks/use-org-local-storage'
@@ -179,8 +180,7 @@ function TasksPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead className="hidden md:table-cell">Runner</TableHead>
-              <TableHead className="hidden md:table-cell">Workspace</TableHead>
+              <TableHead className="hidden md:table-cell">Agent</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="hidden md:table-cell">Created</TableHead>
               <TableHead className="hidden md:table-cell"></TableHead>
@@ -236,8 +236,9 @@ function TaskRow({ task, onUpdate }: { task: Task; onUpdate: () => void }) {
           {task.name || `Unnamed - ${task.id}`}
         </Link>
       </TableCell>
-      <TableCell className="hidden md:table-cell">{task.runner}</TableCell>
-      <TableCell className="hidden md:table-cell">{task.workspace}</TableCell>
+      <TableCell className="hidden md:table-cell">
+        <AgentRef agentId={task.agentId} className="hover:underline" />
+      </TableCell>
       <TableCell>
         <span className="flex items-center gap-2">
           <StatusBadge task={task} />
