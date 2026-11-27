@@ -1,6 +1,6 @@
 ---
 title: Schedules
-description: Create tasks of an agent on a cron schedule, in a timezone, and run a schedule's task on demand.
+description: Create tasks of an agent on a cron schedule, in a timezone.
 sidebar:
   order: 7
 ---
@@ -74,11 +74,9 @@ among each agent's schedules.
 
 ## Run now
 
-The [`run_schedule`](/integrations/mcp/#set_schedule_enabled-run_schedule-delete_schedule)
-MCP tool creates a task from a schedule straight away, the same task it would
-create when it fires. It works on disabled schedules too, and it doesn't change
-the schedule's next run or its last run. In the Web UI, an agent's run button on
-the **Agents** page opens a new task of the agent with its prompt filled in.
+To run a schedule's agent without waiting for the schedule, use the agent's run
+button on the **Agents** page in the Web UI: it opens a new task of the agent
+with its prompt filled in. The schedule's next run and last run don't change.
 
 ## Editing, disabling and deleting
 
